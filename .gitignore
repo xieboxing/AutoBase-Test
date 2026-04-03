@@ -1,0 +1,104 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# ===== APK 文件（通常很大，不应提交）=====
+*.apk
+*.aab
+data/apks/
+
+# ===== Runtime data（运行时生成的数据）=====
+# 截图、录屏、日志、报告
+data/screenshots/
+data/videos/
+data/baselines/
+data/logs/
+data/reports/
+
+# UI dump 临时文件
+data/*.xml
+
+# AI 知识库（运行时生成）
+data/knowledge/
+
+# 测试临时目录
+data/test-layout/
+data/test-text/
+data/test-reports/
+
+# 保留目录结构但忽略内容（使用 .gitkeep）
+data/**/
+!data/**/.gitkeep
+
+# ===== Environment files（敏感配置）=====
+.env
+.env.local
+.env.*.local
+
+# ===== Database files（本地数据库）=====
+*.db
+*.sqlite
+*.sqlite3
+
+# ===== IDE =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== Logs =====
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ===== Test coverage =====
+coverage/
+
+# ===== Temporary files =====
+*.tmp
+*.temp
+.cache/
+
+# ===== Test suites user data（用户测试数据）=====
+# 保留项目结构，忽略用户生成的用例和报告
+test-suites/*/cases/
+test-suites/*/reports/
+test-suites/*/screenshots/
+test-suites/*/config.json
+
+# ===== Claude Code 本地配置（敏感数据）=====
+# 只忽略本地私有配置，保留项目共享配置
+.claude/settings.local.json
+.claude/memory/
+
+# ===== Lock files（可选，根据团队约定）=====
+# package-lock.json 通常应该提交，但如果是个人项目可以忽略
+# package-lock.json
+
+# ===== Debug files =====
+*.pdb
+*.dump
+
+# ===== 压缩包 =====
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# ===== 备份文件 =====
+*.bak
+*.backup
+*.orig
+
+# ===== 敏感测试数据 =====
+test-suites/test-project/

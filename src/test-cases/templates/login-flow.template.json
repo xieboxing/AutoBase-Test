@@ -1,0 +1,81 @@
+{
+  "id": "tc-login-flow-001",
+  "name": "用户登录流程测试",
+  "description": "验证用户可以使用账号密码成功登录",
+  "priority": "P0",
+  "type": "functional",
+  "platform": ["pc-web", "h5-web", "android-app"],
+  "tags": ["login", "auth", "smoke"],
+  "preconditions": [
+    "用户已注册账号",
+    "账号状态正常"
+  ],
+  "steps": [
+    {
+      "order": 1,
+      "action": "navigate",
+      "value": "{{LOGIN_URL}}",
+      "description": "打开登录页面"
+    },
+    {
+      "order": 2,
+      "action": "assert",
+      "type": "element-visible",
+      "target": "{{USERNAME_INPUT}}",
+      "description": "验证用户名输入框存在"
+    },
+    {
+      "order": 3,
+      "action": "fill",
+      "target": "{{USERNAME_INPUT}}",
+      "value": "{{TEST_USERNAME}}",
+      "description": "输入用户名"
+    },
+    {
+      "order": 4,
+      "action": "fill",
+      "target": "{{PASSWORD_INPUT}}",
+      "value": "{{TEST_PASSWORD}}",
+      "description": "输入密码"
+    },
+    {
+      "order": 5,
+      "action": "click",
+      "target": "{{LOGIN_BUTTON}}",
+      "description": "点击登录按钮"
+    },
+    {
+      "order": 6,
+      "action": "wait",
+      "value": "2000",
+      "description": "等待登录完成"
+    },
+    {
+      "order": 7,
+      "action": "assert",
+      "type": "url-contains",
+      "value": "{{SUCCESS_URL}}",
+      "description": "验证跳转到成功页面"
+    },
+    {
+      "order": 8,
+      "action": "assert",
+      "type": "element-visible",
+      "target": "{{USER_AVATAR}}",
+      "description": "验证用户头像显示"
+    }
+  ],
+  "cleanup": [
+    {
+      "order": 1,
+      "action": "click",
+      "target": "{{LOGOUT_BUTTON}}",
+      "description": "退出登录"
+    }
+  ],
+  "metadata": {
+    "author": "Template",
+    "created": "2024-01-01T00:00:00Z",
+    "updated": "2024-01-01T00:00:00Z"
+  }
+}

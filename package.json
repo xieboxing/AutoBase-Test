@@ -1,0 +1,105 @@
+{
+  "name": "auto-test-platform",
+  "version": "0.1.0",
+  "description": "AI驱动的全自动化测试平台 - 给我一个URL或APK，全自动完成专业级测试",
+  "type": "module",
+  "bin": {
+    "autotest": "./dist/cli/index.js"
+  },
+  "main": "./dist/core/orchestrator.js",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/core/orchestrator.js"
+    },
+    "./cli": "./dist/cli/index.js",
+    "./core": "./dist/core/index.js",
+    "./ai": "./dist/ai/index.js",
+    "./testers": "./dist/testers/index.js",
+    "./reporters": "./dist/reporters/index.js"
+  },
+  "scripts": {
+    "dev": "tsx watch src/cli/index.ts",
+    "build": "tsup",
+    "test:self": "vitest run",
+    "test:self:watch": "vitest",
+    "test:self:coverage": "vitest run --coverage",
+    "lint": "eslint src tests --ext .ts,.tsx",
+    "lint:fix": "eslint src tests --ext .ts,.tsx --fix",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "clean": "tsx scripts/clean.ts",
+    "setup": "npx playwright install",
+    "doctor": "tsx src/cli/index.ts doctor"
+  },
+  "keywords": [
+    "test",
+    "automation",
+    "playwright",
+    "appium",
+    "ai",
+    "e2e",
+    "testing",
+    "visual-regression",
+    "accessibility",
+    "performance",
+    "security"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^20.11.0",
+    "@types/pixelmatch": "^5.2.6",
+    "@types/pngjs": "^6.0.5",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "prettier": "^3.2.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0",
+    "vite-tsconfig-paths": "^6.1.1",
+    "vitest": "^1.2.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.27.0",
+    "@axe-core/playwright": "^4.9.0",
+    "@playwright/test": "^1.41.0",
+    "@types/nodemailer": "^7.0.11",
+    "@wdio/appium-service": "^8.29.0",
+    "@wdio/local-runner": "^8.29.0",
+    "better-sqlite3": "^11.0.0",
+    "boxen": "^7.1.0",
+    "chalk": "^5.3.0",
+    "cli-table3": "^0.6.3",
+    "commander": "^11.1.0",
+    "dayjs": "^1.11.10",
+    "dotenv": "^16.4.0",
+    "glob": "^10.3.0",
+    "handlebars": "^4.7.8",
+    "inquirer": "^9.2.0",
+    "lighthouse": "^12.0.0",
+    "mime-types": "^2.1.35",
+    "nanoid": "^5.0.0",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^8.0.4",
+    "openai": "^4.24.0",
+    "ora": "^7.0.0",
+    "pino": "^8.17.0",
+    "pino-pretty": "^10.3.0",
+    "pixelmatch": "^5.3.0",
+    "playwright": "^1.41.0",
+    "pngjs": "^7.0.0",
+    "webdriverio": "^8.29.0",
+    "zod": "^3.22.0"
+  },
+  "peerDependencies": {
+    "playwright": "^1.41.0"
+  }
+}

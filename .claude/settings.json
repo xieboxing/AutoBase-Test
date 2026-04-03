@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"C:\\\\Users\\\\Huayao002\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\" -s emulator-5554 shell pm list packages -3)",
+      "Bash(\"C:\\\\Users\\\\Huayao002\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\" -s emulator-5554 shell pm list packages)",
+      "Bash(\"C:\\\\Users\\\\Huayao002\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\" -s emulator-5554 uninstall com.get.rich)",
+      "Bash(\"C:\\\\Users\\\\Huayao002\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\" -s emulator-5554 install \"e:/code/AutoBase-Test/Slickorps_1.0.0 \\(11\\).apk\")",
+      "Bash(\"C:\\\\Users\\\\Huayao002\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\" -s emulator-5554 shell dumpsys package)",
+      "Bash(\"C:\\\\Users\\\\Huayao002\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\" -s emulator-5554 shell screencap -p /sdcard/s.png)",
+      "Bash(\"C:\\\\Users\\\\Huayao002\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\" -s emulator-5554 pull /sdcard/s.png e:/code/AutoBase-Test/data/screenshots/slickorps-explore/APP-启动页.png)",
+      "Bash(\"C:\\\\Users\\\\Huayao002\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\" -s emulator-5554 pull /sdcard/s.png \"e:/code/AutoBase-Test/data/screenshots/slickorps-explore/APP-启动页.png\")",
+      "Bash(\"C:\\\\Users\\\\Huayao002\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\" -s emulator-5554 pull /sdcard/s.png ./data/screenshots/slickorps-explore/APP-启动页.png)",
+      "Bash(\"C:\\\\Users\\\\Huayao002\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\" -s emulator-5554 shell dumpsys package com.get.rich)",
+      "Bash(\"C:\\\\Users\\\\Huayao002\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\" -s emulator-5554 shell am start -S -n com.get.rich/com.lkandzs.imtx.tim.TxImSplashActivity)",
+      "Bash(\"C:\\\\Users\\\\Huayao002\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\" -s emulator-5554 shell \"uiautomator dump && cat /sdcard/window_dump.xml\")"
+    ]
+  }
+}

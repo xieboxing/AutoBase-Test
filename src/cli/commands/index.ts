@@ -1,0 +1,11 @@
+export { createWebCommand } from './test-web.js';
+export { createAppCommand } from './test-app.js';
+export { createApiCommand } from './test-api.js';
+export { createAllCommand } from './test-all.js';
+export { createOptimizeCommand } from './optimize.js';
+export { createReportCommand } from './report.js';
+export { createRecordCommand } from './record.js';
+export { createDoctorCommand } from './doctor.js';
+export { createInitCommand } from './init.js';
+export { createScheduleCommand } from './schedule.js';
+export { createSetupCommand } from './setup.js';

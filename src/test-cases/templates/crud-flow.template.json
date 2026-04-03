@@ -1,0 +1,110 @@
+{
+  "id": "tc-crud-flow-001",
+  "name": "CRUD 流程测试模板",
+  "description": "验证增删改查功能完整流程",
+  "priority": "P1",
+  "type": "functional",
+  "platform": ["pc-web", "h5-web"],
+  "tags": ["crud", "functional"],
+  "preconditions": [
+    "用户已登录",
+    "有操作权限"
+  ],
+  "steps": [
+    {
+      "order": 1,
+      "action": "navigate",
+      "value": "{{LIST_URL}}",
+      "description": "打开列表页面"
+    },
+    {
+      "order": 2,
+      "action": "click",
+      "target": "{{CREATE_BUTTON}}",
+      "description": "点击新建按钮"
+    },
+    {
+      "order": 3,
+      "action": "fill",
+      "target": "{{NAME_INPUT}}",
+      "value": "{{TEST_NAME}}",
+      "description": "输入名称"
+    },
+    {
+      "order": 4,
+      "action": "fill",
+      "target": "{{DESCRIPTION_INPUT}}",
+      "value": "{{TEST_DESCRIPTION}}",
+      "description": "输入描述"
+    },
+    {
+      "order": 5,
+      "action": "click",
+      "target": "{{SUBMIT_BUTTON}}",
+      "description": "提交创建"
+    },
+    {
+      "order": 6,
+      "action": "wait",
+      "value": "1000",
+      "description": "等待创建完成"
+    },
+    {
+      "order": 7,
+      "action": "assert",
+      "type": "text-contains",
+      "value": "{{TEST_NAME}}",
+      "description": "验证创建成功"
+    },
+    {
+      "order": 8,
+      "action": "click",
+      "target": "{{EDIT_BUTTON}}",
+      "description": "点击编辑"
+    },
+    {
+      "order": 9,
+      "action": "fill",
+      "target": "{{NAME_INPUT}}",
+      "value": "{{UPDATED_NAME}}",
+      "description": "修改名称"
+    },
+    {
+      "order": 10,
+      "action": "click",
+      "target": "{{SUBMIT_BUTTON}}",
+      "description": "提交修改"
+    },
+    {
+      "order": 11,
+      "action": "assert",
+      "type": "text-contains",
+      "value": "{{UPDATED_NAME}}",
+      "description": "验证修改成功"
+    },
+    {
+      "order": 12,
+      "action": "click",
+      "target": "{{DELETE_BUTTON}}",
+      "description": "点击删除"
+    },
+    {
+      "order": 13,
+      "action": "click",
+      "target": "{{CONFIRM_BUTTON}}",
+      "description": "确认删除"
+    },
+    {
+      "order": 14,
+      "action": "assert",
+      "type": "text-contains",
+      "value": "{{DELETE_SUCCESS_MESSAGE}}",
+      "description": "验证删除成功"
+    }
+  ],
+  "metadata": {
+    "author": "Template",
+    "created": "2024-01-01T00:00:00Z",
+    "updated": "2024-01-01T00:00:00Z"
+  }
+}

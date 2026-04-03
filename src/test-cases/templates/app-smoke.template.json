@@ -1,0 +1,51 @@
+{
+  "id": "tc-app-smoke-001",
+  "name": "APP 冒烟测试模板",
+  "description": "验证 APP 基本功能是否正常工作",
+  "priority": "P0",
+  "type": "functional",
+  "platform": ["android-app"],
+  "tags": ["smoke", "app", "android"],
+  "preconditions": [
+    "APP 已安装",
+    "设备已连接"
+  ],
+  "steps": [
+    {
+      "order": 1,
+      "action": "navigate",
+      "value": "{{PACKAGE_NAME}}/{{MAIN_ACTIVITY}}",
+      "description": "启动 APP"
+    },
+    {
+      "order": 2,
+      "action": "wait",
+      "value": "3000",
+      "description": "等待启动完成"
+    },
+    {
+      "order": 3,
+      "action": "screenshot",
+      "description": "首页截图"
+    },
+    {
+      "order": 4,
+      "action": "assert",
+      "type": "element-visible",
+      "target": "{{HOME_ELEMENT}}",
+      "description": "验证首页元素存在"
+    }
+  ],
+  "cleanup": [
+    {
+      "order": 1,
+      "action": "back",
+      "description": "返回"
+    }
+  ],
+  "metadata": {
+    "author": "Template",
+    "created": "2024-01-01T00:00:00Z",
+    "updated": "2024-01-01T00:00:00Z"
+  }
+}

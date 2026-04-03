@@ -1,0 +1,226 @@
+/**
+ * 测试错误代码
+ */
+export enum TestErrorCode {
+  // 环境错误
+  BROWSER_LAUNCH_FAILED = 'BROWSER_LAUNCH_FAILED',
+  APPIUM_CONNECTION_FAILED = 'APPIUM_CONNECTION_FAILED',
+  DEVICE_NOT_FOUND = 'DEVICE_NOT_FOUND',
+  ENVIRONMENT_NOT_READY = 'ENVIRONMENT_NOT_READY',
+
+  // 测试执行错误
+  ELEMENT_NOT_FOUND = 'ELEMENT_NOT_FOUND',       // → 触发自愈
+  NAVIGATION_TIMEOUT = 'NAVIGATION_TIMEOUT',
+  ASSERTION_FAILED = 'ASSERTION_FAILED',
+  ACTION_FAILED = 'ACTION_FAILED',
+  TEST_TIMEOUT = 'TEST_TIMEOUT',
+  PAGE_CRASH = 'PAGE_CRASH',
+
+  // AI 错误
+  AI_API_FAILED = 'AI_API_FAILED',
+  AI_PARSE_FAILED = 'AI_PARSE_FAILED',
+  AI_NOT_AVAILABLE = 'AI_NOT_AVAILABLE',
+
+  // 配置错误
+  INVALID_CONFIG = 'INVALID_CONFIG',
+  MISSING_DEPENDENCY = 'MISSING_DEPENDENCY',
+  INVALID_TEST_CASE = 'INVALID_TEST_CASE',
+
+  // 报告错误
+  REPORT_GENERATION_FAILED = 'REPORT_GENERATION_FAILED',
+
+  // 通用错误
+  UNKNOWN_ERROR = 'UNKNOWN_ERROR',
+}
+
+/**
+ * 测试错误类
+ */
+export class TestError extends Error {
+  constructor(
+    message: string,
+    public readonly code: TestErrorCode,
+    public readonly context?: Record<string, unknown>,
+    public readonly screenshot?: string,
+    public readonly recoverable: boolean = false,
+  ) {
+    super(message);
+    this.name = 'TestError';
+  }
+
+  /**
+   * 转换为 JSON 格式
+   */
+  toJSON(): Record<string, unknown> {
+    return {
+      name: this.name,
+      message: this.message,
+      code: this.code,
+      context: this.context,
+      screenshot: this.screenshot,
+      recoverable: this.recoverable,
+      stack: this.stack,
+    };
+  }
+
+  /**
+   * 创建元素未找到错误（可恢复）
+   */
+  static elementNotFound(
+    selector: string,
+    context?: Record<string, unknown>,
+    screenshot?: string,
+  ): TestError {
+    return new TestError(
+      `元素未找到: ${selector}`,
+      TestErrorCode.ELEMENT_NOT_FOUND,
+      { selector, ...context },
+      screenshot,
+      true, // 可通过自愈恢复
+    );
+  }
+
+  /**
+   * 创建断言失败错误
+   */
+  static assertionFailed(
+    assertionType: string,
+    expected: unknown,
+    actual: unknown,
+    context?: Record<string, unknown>,
+    screenshot?: string,
+  ): TestError {
+    return new TestError(
+      `断言失败: ${assertionType}, 期望: ${expected}, 实际: ${actual}`,
+      TestErrorCode.ASSERTION_FAILED,
+      { assertionType, expected, actual, ...context },
+      screenshot,
+      false,
+    );
+  }
+
+  /**
+   * 创建超时错误
+   */
+  static timeout(
+    operation: string,
+    timeoutMs: number,
+    context?: Record<string, unknown>,
+  ): TestError {
+    return new TestError(
+      `${operation} 超时 (${timeoutMs}ms)`,
+      TestErrorCode.NAVIGATION_TIMEOUT,
+      { operation, timeoutMs, ...context },
+      undefined,
+      false,
+    );
+  }
+
+  /**
+   * 创建 AI 错误
+   */
+  static aiError(
+    message: string,
+    originalError?: Error,
+  ): TestError {
+    return new TestError(
+      `AI 错误: ${message}`,
+      TestErrorCode.AI_API_FAILED,
+      { originalError: originalError?.message },
+      undefined,
+      true, // 可降级到规则引擎
+    );
+  }
+}
+
+/**
+ * 错误处理结果
+ */
+export interface ErrorHandlingResult {
+  handled: boolean;
+  recovered: boolean;
+  action?: 'retry' | 'skip' | 'fallback' | 'abort';
+  newSelector?: string; // 自愈后的新选择器
+  message?: string;
+}
+
+/**
+ * 全局错误处理器
+ */
+export function setupGlobalErrorHandler(): void {
+  // 处理未捕获的异常
+  process.on('uncaughtException', (error: Error) => {
+    if (error instanceof TestError) {
+      console.error(`❌ 测试错误 [${error.code}]: ${error.message}`);
+      if (error.screenshot) {
+        console.error(`   截图: ${error.screenshot}`);
+      }
+    } else {
+      console.error('❌ 未捕获的异常:', error);
+    }
+    // 不立即退出，给日志写入时间
+    setTimeout(() => {
+      process.exit(1);
+    }, 1000);
+  });
+
+  // 处理未处理的 Promise 拒绝
+  process.on('unhandledRejection', (reason: unknown, promise: Promise<unknown>) => {
+    console.error('❌ 未处理的 Promise 拒绝:');
+    console.error('  原因:', reason);
+    console.error('  Promise:', promise);
+  });
+
+  // 处理 SIGTERM
+  process.on('SIGTERM', () => {
+    console.log('\n⏹️ 收到 SIGTERM，正在优雅退出...');
+    // 给清理工作时间
+    setTimeout(() => {
+      process.exit(0);
+    }, 5000);
+  });
+
+  // 处理 SIGINT (Ctrl+C)
+  process.on('SIGINT', () => {
+    console.log('\n⏹️ 收到 SIGINT，正在优雅退出...');
+    // 给清理工作时间
+    setTimeout(() => {
+      process.exit(0);
+    }, 5000);
+  });
+}
+
+/**
+ * 判断错误是否可恢复
+ */
+export function isRecoverable(error: Error): boolean {
+  if (error instanceof TestError) {
+    return error.recoverable;
+  }
+  return false;
+}
+
+/**
+ * 获取错误的严重级别
+ */
+export function getErrorSeverity(error: Error): 'critical' | 'high' | 'medium' | 'low' {
+  if (error instanceof TestError) {
+    const criticalCodes = [
+      TestErrorCode.BROWSER_LAUNCH_FAILED,
+      TestErrorCode.APPIUM_CONNECTION_FAILED,
+      TestErrorCode.ENVIRONMENT_NOT_READY,
+    ];
+    const highCodes = [
+      TestErrorCode.PAGE_CRASH,
+      TestErrorCode.TEST_TIMEOUT,
+    ];
+
+    if (criticalCodes.includes(error.code)) {
+      return 'critical';
+    }
+    if (highCodes.includes(error.code)) {
+      return 'high';
+    }
+  }
+  return 'medium';
+}

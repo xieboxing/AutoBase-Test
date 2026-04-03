@@ -1,0 +1,44 @@
+{
+  "id": "tc-web-smoke-001",
+  "name": "Web 冒烟测试模板",
+  "description": "验证页面基本功能是否正常工作",
+  "priority": "P0",
+  "type": "functional",
+  "platform": ["pc-web", "h5-web"],
+  "tags": ["smoke", "web"],
+  "preconditions": [
+    "网站可正常访问"
+  ],
+  "steps": [
+    {
+      "order": 1,
+      "action": "navigate",
+      "value": "{{BASE_URL}}",
+      "description": "打开首页"
+    },
+    {
+      "order": 2,
+      "action": "assert",
+      "type": "url-contains",
+      "value": "{{BASE_URL}}",
+      "description": "验证 URL 正确"
+    },
+    {
+      "order": 3,
+      "action": "assert",
+      "type": "title-contains",
+      "value": "{{SITE_NAME}}",
+      "description": "验证页面标题"
+    },
+    {
+      "order": 4,
+      "action": "screenshot",
+      "description": "首页截图"
+    }
+  ],
+  "metadata": {
+    "author": "Template",
+    "created": "2024-01-01T00:00:00Z",
+    "updated": "2024-01-01T00:00:00Z"
+  }
+}

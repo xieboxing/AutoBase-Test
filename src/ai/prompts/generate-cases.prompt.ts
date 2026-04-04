@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { PageAnalysisResult } from './analyze-page.prompt.js';
 import type { InteractiveElement, FormInfo } from '@/types/crawler.types.js';
+import type { HistoricalContext } from '@/types/knowledge.types.js';
 
 /**
  * 测试步骤 Schema
@@ -75,6 +76,10 @@ export function buildGenerateCasesPrompt(params: {
   pageAnalysis: PageAnalysisResult;
   interactiveElements: InteractiveElement[];
   forms: FormInfo[];
+  /** 历史测试上下文（可选） */
+  historicalContext?: HistoricalContext;
+  /** 相似历史记忆（可选） */
+  similarMemories?: string;
 }): string {
   // 构建元素选择器映射
   const elementSelectors = params.interactiveElements.slice(0, 30).map(el => ({
@@ -95,8 +100,85 @@ export function buildGenerateCasesPrompt(params: {
     })),
   }));
 
-  return `你是一位资深的QA测试专家。请根据页面分析结果，生成详细的测试用例。
+  // 构建历史上下文段落
+  let historicalContextSection = '';
+  if (params.historicalContext) {
+    const ctx = params.historicalContext;
 
+    // 上次通过的用例
+    const passedCasesSummary = ctx.previousPassedCases.slice(0, 10).map(c => ({
+      id: c.caseId,
+      name: c.caseName,
+      passRate: c.passRate,
+    }));
+
+    // 上次失败的用例
+    const failedCasesSummary = ctx.previousFailedCases.slice(0, 10).map(c => ({
+      id: c.caseId,
+      name: c.caseName,
+      reason: c.failureReason,
+      step: c.failedStep?.description,
+    }));
+
+    // 覆盖薄弱区域
+    const weakCoverageSummary = ctx.weakCoverageAreas.slice(0, 5).map(a => ({
+      url: a.urlPattern,
+      feature: a.featureArea,
+      coverage: a.coverageRate,
+    }));
+
+    // 历史失败模式摘要
+    const failurePatternsSummary = ctx.failurePatterns.slice(0, 5).map(p => ({
+      type: p.patternType,
+      description: p.description,
+      frequency: p.frequency,
+    }));
+
+    historicalContextSection = `
+## 历史测试上下文
+
+### 上次通过的用例（避免重复生成）
+\`\`\`json
+${JSON.stringify(passedCasesSummary, null, 2)}
+\`\`\`
+
+### 上次失败的用例（重点补测）
+\`\`\`json
+${JSON.stringify(failedCasesSummary, null, 2)}
+\`\`\`
+
+### 覆盖薄弱区域（优先补充）
+\`\`\`json
+${JSON.stringify(weakCoverageSummary, null, 2)}
+\`\`\`
+
+### 常见失败模式（注意防范）
+\`\`\`json
+${JSON.stringify(failurePatternsSummary, null, 2)}
+\`\`\`
+
+### 历史优化建议（已自动应用的）
+${ctx.optimizationSuggestions.filter(s => s.autoApplicable && s.applied).slice(0, 3).map(s =>
+  `- ${s.suggestion}: ${s.reason}`
+).join('\n') || '无已应用的优化建议'}
+
+---
+
+**重要提示**:
+1. 对于上次失败的用例，请生成新的测试步骤来验证问题是否已修复
+2. 对于覆盖薄弱区域，请优先生成针对性测试用例
+3. 对于上次通过的用例，避免生成完全重复的测试，可以生成边界或衍生测试
+4. 注意防范常见失败模式，在测试步骤中加入适当的等待和验证
+`;
+  }
+
+  // 相似历史记忆部分
+  const similarMemoriesSection = params.similarMemories
+    ? `\n${params.similarMemories}\n**注意**: 请参考这些历史案例，复用成功的测试策略。\n`
+    : '';
+
+  return `你是一位资深的QA测试专家。请根据页面分析结果，生成详细的测试用例。
+${similarMemoriesSection}
 ## 页面信息
 - URL: ${params.pageUrl}
 - 标题: ${params.pageTitle}
@@ -116,6 +198,7 @@ ${JSON.stringify(elementSelectors, null, 2)}
 \`\`\`json
 ${JSON.stringify(formData, null, 2)}
 \`\`\`
+${historicalContextSection}
 
 ## 生成要求
 

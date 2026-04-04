@@ -18,7 +18,7 @@ export const globalConfigSchema = z.object({
   reportFormats: z.array(z.enum(['html', 'json', 'markdown', 'console'])).default(defaultConfig.reportFormats),
   reportLanguage: z.enum(['zh-CN', 'en-US']).default('zh-CN'),
   defaultTestType: z.enum(['smoke', 'full', 'regression', 'performance', 'security', 'accessibility', 'visual', 'monkey']).default(defaultConfig.defaultTestType),
-  defaultPlatform: z.enum(['pc-web', 'h5-web', 'android-app', 'api']).default(defaultConfig.defaultPlatform),
+  defaultPlatform: z.enum(['pc-web', 'h5-web', 'android-app', 'api']).default(defaultConfig.defaultPlatform as 'pc-web' | 'h5-web' | 'android-app' | 'api'),
   defaultBrowser: z.enum(['chromium', 'firefox', 'webkit']).default(defaultConfig.defaultBrowser),
   defaultViewport: z.object({
     width: z.number().int().min(320).max(3840),

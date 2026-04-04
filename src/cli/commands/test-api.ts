@@ -4,6 +4,7 @@ import inquirer from 'inquirer';
 import { logger } from '@/core/logger.js';
 import { ConsoleReporter } from '@/reporters/console-reporter.js';
 import { ReportGenerator } from '@/reporters/report-generator.js';
+import type { TestCaseResult } from '@/types/test-result.types.js';
 
 /**
  * API 测试命令选项
@@ -167,7 +168,7 @@ async function executeApiTest(baseUrl: string, options: ApiCommandOptions): Prom
     // 执行测试
     consoleReporter.startRun('API 测试', discoveredEndpoints.length);
 
-    const results: Array<Record<string, unknown>> = [];
+    const results: TestCaseResult[] = [];
 
     for (const endpoint of discoveredEndpoints) {
       consoleReporter.startCase(`${endpoint.method} ${endpoint.path}`, `api-${endpoint.path.replace(/\//g, '-')}`);
@@ -175,7 +176,7 @@ async function executeApiTest(baseUrl: string, options: ApiCommandOptions): Prom
       // 模拟测试
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      const result = {
+      const result: TestCaseResult = {
         caseId: `api-${endpoint.path.replace(/\//g, '-')}`,
         caseName: `${endpoint.method} ${endpoint.path}`,
         status: 'passed' as const,

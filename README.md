@@ -12,6 +12,10 @@
 - 🤖 **AI 智能**：自动生成测试用例、自愈元素定位、智能优化
 - 📊 **中文报告**：生成易读的中文测试报告，含截图和建议
 - 🔄 **自学习**：越跑越聪明，自动优化测试流程
+- 🔍 **探索式测试**：AI 主动漫游发现异常
+- 👁️ **视觉回归**：自动检测 UI 变化
+- ⚡ **并发执行**：多 Worker 加速测试
+- 🧠 **RAG 记忆**：沉淀测试经验，智能召回
 
 ## 🚀 快速开始
 
@@ -63,8 +67,10 @@ npx autotest api https://api.example.com/v1
 | `npx autotest app <apk>` | 测试 APP |
 | `npx autotest api <url>` | 测试 API |
 | `npx autotest all --config <path>` | 全部测试 |
+| `npx autotest explore <url>` | 探索式测试 |
 | `npx autotest optimize --project <name>` | AI 优化测试 |
 | `npx autotest report --latest` | 查看最新报告 |
+| `npx autotest visual list` | 视觉基线管理 |
 | `npx autotest record <url>` | 录制操作生成用例 |
 | `npx autotest doctor` | 检查环境 |
 | `npx autotest setup` | 安装浏览器驱动 |
@@ -242,6 +248,48 @@ npx autotest api https://api.example.com/v1 --type contract
 npx autotest api https://api.example.com/v1 --type stress
 ```
 
+## 🗄️ 数据库与知识库
+
+测试平台使用 SQLite 数据库存储测试结果和知识库数据，支持按平台（PC/H5/APP）分类存储。
+
+### 数据库位置
+
+```
+db/
+├── sqlite.db              # 主数据库（测试结果、知识库）
+└── ext/                   # SQLite 向量扩展（用于 AI 语义搜索）
+    ├── windows/vec0.dll
+    ├── linux/vec0.so
+    └── macos/vec0.so
+```
+
+### 平台分类存储
+
+测试结果自动按平台分类：
+- **PC Web** (`pc-web`) - 桌面端测试结果
+- **H5 Web** (`h5-web`) - 移动端 Web 测试结果
+- **Android APP** (`android-app`) - APP 测试结果
+- **API** (`api`) - API 测试结果
+
+### 数据库操作
+
+```bash
+# 初始化数据库
+npm run db:init
+
+# 从旧版迁移数据（如果有旧数据）
+npm run db:migrate
+```
+
+### 向量扩展（可选）
+
+向量扩展用于 AI 语义搜索功能：
+- 语义搜索测试用例
+- 智能元素匹配
+- 失败模式聚类分析
+
+如果向量扩展不可用，系统会自动降级到普通模式运行。
+
 ## 📊 测试报告
 
 测试完成后自动生成报告，存储在 `data/reports/` 目录：
@@ -410,6 +458,114 @@ HTTPS_PROXY=http://localhost:7890
 }
 ```
 
+## 🔍 探索式测试
+
+让 AI 主动漫游应用，发现异常和未知问题：
+
+```bash
+# 探索网站
+npx autotest explore https://example.com
+
+# 指定探索策略
+npx autotest explore https://example.com --strategy reward-based
+
+# 限制探索步数和时长
+npx autotest explore https://example.com --max-steps 50 --max-duration 600
+
+# 显示浏览器窗口
+npx autotest explore https://example.com --no-headless
+```
+
+探索策略：
+- `random` - 随机探索
+- `breadth-first` - 广度优先
+- `depth-first` - 深度优先
+- `reward-based` - 基于奖励（默认）
+- `ai-guided` - AI 引导
+
+探索报告包含：
+- 发现的新状态数量
+- 发现的异常（控制台错误、网络错误、崩溃等）
+- 自动生成的回归测试用例
+
+## 👁️ 视觉回归测试
+
+自动检测 UI 视觉变化：
+
+```bash
+# 列出所有视觉基线
+npx autotest visual list
+
+# 对比截图与基线
+npx autotest visual compare ./screenshot.png --baseline-id baseline-001
+
+# 更新基线
+npx autotest visual update ./screenshot.png --baseline-id baseline-001
+
+# 删除基线
+npx autotest visual delete baseline-001
+
+# 查看统计信息
+npx autotest visual stats
+```
+
+## ⚡ 并发执行
+
+加速测试执行：
+
+```bash
+# 自动检测 CPU 核心数并发执行
+npx autotest web https://example.com --parallel auto
+
+# 指定并发数
+npx autotest web https://example.com --parallel 4
+```
+
+## 🧠 智能特性
+
+### 知识库反哺闭环
+
+历史测试数据自动影响下次测试：
+- 高失败率用例优先执行
+- 稳定用例自动降频
+- 历史失败模式预加载
+
+### 智能调度
+
+基于风险分动态排序：
+- 风险分 = 失败率 40% + 上次状态 25% + 优先级 20% + 老化 15%
+- 高风险用例优先执行
+- 连续 30 次通过的用例可跳过
+
+### 自动修复
+
+失败用例自动尝试修复：
+- 匹配失败模式库
+- 应用自动修复策略（增加超时、添加等待、重试）
+- 修复成功后记录到 RAG 记忆
+
+### RAG 长期记忆
+
+沉淀测试经验：
+- 失败场景记忆
+- 自愈成功记忆
+- 新状态发现记忆
+- 相似场景智能召回
+
+### 状态图谱
+
+构建应用状态地图：
+- 自动识别页面状态
+- 记录状态转移路径
+- 自愈失败时尝试替代路径
+
+### 业务流测试
+
+基于截图和页面语义识别业务流程：
+- 自动识别登录、购物、搜索等业务流
+- 生成端到端测试用例
+- 识别关键业务步骤
+
 ## ❓ 常见问题 FAQ
 
 ### Web 测试相关
@@ -484,6 +640,12 @@ npm run lint
 
 # 格式化
 npm run format
+
+# 数据库初始化
+npm run db:init
+
+# 数据库迁移（从旧版迁移）
+npm run db:migrate
 ```
 
 ## 📚 文档

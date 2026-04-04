@@ -2,6 +2,11 @@ import type { PageSnapshot, InteractiveElement } from '@/types/crawler.types.js'
 import { AiClient, getAiClient } from './client.js';
 import { logger } from '@/core/logger.js';
 import { nanoid } from 'nanoid';
+import { getDatabase, type KnowledgeDatabase } from '@/knowledge/db/index.js';
+import { createRagMemoryEngine } from '@/knowledge/rag-memory.js';
+import type { RagMemoryEngine } from '@/knowledge/rag-memory.js';
+import type { RagRetrievalResult } from '@/types/rag.types.js';
+import { eventBus, TestEventType } from '@/core/event-bus.js';
 
 /**
  * 自愈引擎配置
@@ -11,6 +16,16 @@ export interface SelfHealerConfig {
   maxCandidates: number;
   minSimilarityScore: number;
   historyEnabled: boolean;
+  /** 是否启用数据库持久化 */
+  persistenceEnabled: boolean;
+  /** 项目标识（用于持久化隔离） */
+  project?: string;
+  /** 平台标识（用于持久化隔离） */
+  platform?: string;
+  /** 是否启用 RAG 记忆检索 */
+  useRagMemory: boolean;
+  /** RAG 检索数量限制 */
+  ragMemoryLimit: number;
 }
 
 /**
@@ -21,6 +36,9 @@ const DEFAULT_SELF_HEALER_CONFIG: SelfHealerConfig = {
   maxCandidates: 5,
   minSimilarityScore: 0.5,
   historyEnabled: true,
+  persistenceEnabled: true,
+  useRagMemory: true,
+  ragMemoryLimit: 3,
 };
 
 /**
@@ -70,10 +88,41 @@ export class SelfHealer {
   private config: SelfHealerConfig;
   private aiClient: AiClient;
   private elementMappings: Map<string, ElementMapping> = new Map();
+  private db: KnowledgeDatabase | null = null;
+  private ragMemory: RagMemoryEngine | null = null;
+  private initialized: boolean = false;
 
   constructor(config: Partial<SelfHealerConfig> = {}, aiClient?: AiClient) {
     this.config = { ...DEFAULT_SELF_HEALER_CONFIG, ...config };
     this.aiClient = aiClient ?? getAiClient();
+  }
+
+  /**
+   * 初始化自愈引擎（加载历史映射）
+   */
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+
+    if (this.config.persistenceEnabled && this.config.project && this.config.platform) {
+      try {
+        this.db = getDatabase();
+        await this.db.initialize();
+        await this.loadFromDatabase();
+
+        // 初始化 RAG 记忆引擎
+        if (this.config.useRagMemory) {
+          this.ragMemory = createRagMemoryEngine(this.db);
+        }
+
+        logger.info('✅ 自愈引擎初始化完成，已加载历史元素映射', {
+          count: this.elementMappings.size,
+        });
+      } catch (error) {
+        logger.warn('⚠️ 自愈引擎初始化失败，将仅使用内存映射', { error: String(error) });
+      }
+    }
+
+    this.initialized = true;
   }
 
   /**
@@ -84,6 +133,9 @@ export class SelfHealer {
     snapshot: PageSnapshot,
     action: string,
   ): Promise<SelfHealResult> {
+    // 确保已初始化
+    await this.initialize();
+
     logger.ai('🤖 开始自愈元素定位', { selector: originalSelector, action });
 
     // 1. 先尝试历史映射
@@ -253,8 +305,27 @@ export class SelfHealer {
     snapshot: PageSnapshot,
     action: string,
   ): Promise<SelfHealResult> {
-    // 构建 AI prompt
-    const prompt = this.buildHealPrompt(originalSelector, snapshot, action);
+    // 检索相似历史记忆
+    let similarMemories: RagRetrievalResult[] = [];
+    if (this.config.useRagMemory && this.ragMemory) {
+      similarMemories = this.retrieveSimilarHealMemories(originalSelector, snapshot, action);
+      if (similarMemories.length > 0) {
+        logger.info('📚 检索到相似自愈历史', {
+          count: similarMemories.length,
+          topSimilarity: similarMemories[0]?.similarity.toFixed(2),
+        });
+
+        // 发出 RAG 检索事件
+        eventBus.emitSafe(TestEventType.RAG_RETRIEVING, {
+          queryType: 'self_heal',
+          projectId: this.config.project ?? 'unknown',
+          limit: this.config.ragMemoryLimit,
+        });
+      }
+    }
+
+    // 构建 AI prompt（注入历史记忆）
+    const prompt = this.buildHealPrompt(originalSelector, snapshot, action, similarMemories);
 
     try {
       const response = await this.aiClient.chatWithRetry(
@@ -305,12 +376,38 @@ export class SelfHealer {
   }
 
   /**
+   * 检索相似的自愈历史记忆
+   */
+  private retrieveSimilarHealMemories(
+    originalSelector: string,
+    snapshot: PageSnapshot,
+    action: string,
+  ): RagRetrievalResult[] {
+    if (!this.ragMemory) return [];
+
+    const queryText = [
+      originalSelector,
+      snapshot.url,
+      action,
+    ].filter(Boolean).join(' ');
+
+    return this.ragMemory.search({
+      queryText,
+      projectId: this.config.project,
+      memoryTypes: ['self_heal', 'auto_fix', 'failure'],
+      limit: this.config.ragMemoryLimit,
+      minSimilarity: 0.2,
+    });
+  }
+
+  /**
    * 构建自愈 Prompt
    */
   private buildHealPrompt(
     originalSelector: string,
     snapshot: PageSnapshot,
     action: string,
+    similarMemories: RagRetrievalResult[] = [],
   ): string {
     const elementsSummary = snapshot.interactiveElements.slice(0, 30).map(el => ({
       selector: el.selector,
@@ -321,8 +418,19 @@ export class SelfHealer {
       clickable: el.clickable,
     }));
 
-    return `你是一位自动化测试专家。元素选择器失效，请推荐替代选择器。
+    // 构建历史记忆部分
+    const memorySection = similarMemories.length > 0
+      ? `\n## 历史相似案例（供参考）\n${similarMemories.map((m, i) =>
+          `### 案例 ${i + 1}（相似度: ${m.similarity.toFixed(2)}）\n` +
+          `- 原选择器: ${m.memory.contextUrl || 'unknown'}\n` +
+          `- 执行结果: ${m.memory.executionResult.slice(0, 150)}\n` +
+          (m.memory.solutionStrategy ? `- 解决策略: ${m.memory.solutionStrategy}\n` : '') +
+          (m.memory.solutionSteps ? `- 解决步骤: ${m.memory.solutionSteps.join(', ')}\n` : '')
+        ).join('\n')}\n**注意**: 请优先考虑这些历史案例中成功的解决方案。\n`
+      : '';
 
+    return `你是一位自动化测试专家。元素选择器失效，请推荐替代选择器。
+${memorySection}
 ## 原始选择器
 ${originalSelector}
 
@@ -546,6 +654,9 @@ ${JSON.stringify(elementsSummary, null, 2)}
           existing.alternativeSelectors.pop();
         }
       }
+
+      // 持久化到数据库
+      this.persistMapping(existing);
     } else {
       // 创建新映射
       const mapping: ElementMapping = {
@@ -561,6 +672,149 @@ ${JSON.stringify(elementsSummary, null, 2)}
         pageUrlPattern: snapshot.url,
       };
       this.elementMappings.set(originalSelector, mapping);
+
+      // 持久化到数据库
+      this.persistMapping(mapping);
+    }
+  }
+
+  /**
+   * 从数据库加载历史映射
+   */
+  private async loadFromDatabase(): Promise<void> {
+    if (!this.db || !this.config.project || !this.config.platform) {
+      return;
+    }
+
+    try {
+      const rows = this.db.query<{
+        id: string;
+        original_selector: string;
+        alternative_selectors: string;
+        last_working_selector: string;
+        last_updated: string;
+        ai_suggested: number;
+        success_count: number;
+        failure_count: number;
+        element_description: string;
+        page_url_pattern: string;
+      }>(`
+        SELECT * FROM element_mappings
+        WHERE project = ? AND platform = ?
+        ORDER BY success_count DESC, last_updated DESC
+        LIMIT 100
+      `, [this.config.project, this.config.platform]);
+
+      for (const row of rows) {
+        const mapping: ElementMapping = {
+          id: row.id,
+          originalSelector: row.original_selector,
+          alternativeSelectors: JSON.parse(row.alternative_selectors || '[]'),
+          lastWorkingSelector: row.last_working_selector,
+          lastUpdated: row.last_updated,
+          aiSuggested: row.ai_suggested === 1,
+          successCount: row.success_count,
+          failureCount: row.failure_count,
+          elementDescription: row.element_description || '',
+          pageUrlPattern: row.page_url_pattern,
+        };
+        this.elementMappings.set(mapping.originalSelector, mapping);
+      }
+
+      logger.info('📊 从数据库加载元素映射', { count: rows.length });
+    } catch (error) {
+      logger.warn('⚠️ 加载历史映射失败', { error: String(error) });
+    }
+  }
+
+  /**
+   * 持久化映射到数据库
+   */
+  private async persistMapping(mapping: ElementMapping): Promise<void> {
+    if (!this.db || !this.config.project || !this.config.platform) {
+      return;
+    }
+
+    try {
+      // 使用 upsert 逻辑
+      const existing = this.db.query<{ id: string }>(
+        'SELECT id FROM element_mappings WHERE id = ?',
+        [mapping.id],
+      );
+
+      if (existing.length > 0) {
+        // 更新
+        this.db.execute(`
+          UPDATE element_mappings SET
+            alternative_selectors = ?,
+            last_working_selector = ?,
+            last_updated = ?,
+            ai_suggested = ?,
+            success_count = ?,
+            failure_count = ?,
+            element_description = ?,
+            page_url_pattern = ?
+          WHERE id = ?
+        `, [
+          JSON.stringify(mapping.alternativeSelectors),
+          mapping.lastWorkingSelector,
+          mapping.lastUpdated,
+          mapping.aiSuggested ? 1 : 0,
+          mapping.successCount,
+          mapping.failureCount,
+          mapping.elementDescription,
+          mapping.pageUrlPattern,
+          mapping.id,
+        ]);
+      } else {
+        // 插入
+        this.db.execute(`
+          INSERT INTO element_mappings (
+            id, project, platform, page_url, element_name,
+            original_selector, alternative_selectors, last_working_selector,
+            selector_type, success_count, failure_count, success_rate,
+            ai_suggested, element_description, page_url_pattern, last_updated, created
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          mapping.id,
+          this.config.project,
+          this.config.platform,
+          mapping.pageUrlPattern,
+          mapping.elementDescription || '',
+          mapping.originalSelector,
+          JSON.stringify(mapping.alternativeSelectors),
+          mapping.lastWorkingSelector,
+          'css',
+          mapping.successCount,
+          mapping.failureCount,
+          mapping.successCount / (mapping.successCount + mapping.failureCount || 1),
+          mapping.aiSuggested ? 1 : 0,
+          mapping.elementDescription,
+          mapping.pageUrlPattern,
+          mapping.lastUpdated,
+          mapping.lastUpdated,
+        ]);
+      }
+
+      logger.debug('💾 元素映射已持久化', { selector: mapping.originalSelector });
+    } catch (error) {
+      logger.warn('⚠️ 持久化元素映射失败', { error: String(error) });
+    }
+  }
+
+  /**
+   * 从数据库删除映射
+   */
+  private async deleteMappingFromDatabase(mappingId: string): Promise<void> {
+    if (!this.db) {
+      return;
+    }
+
+    try {
+      this.db.execute('DELETE FROM element_mappings WHERE id = ?', [mappingId]);
+      logger.debug('🗑️ 元素映射已从数据库删除', { id: mappingId });
+    } catch (error) {
+      logger.warn('⚠️ 删除映射失败', { error: String(error) });
     }
   }
 
@@ -572,6 +826,8 @@ ${JSON.stringify(elementsSummary, null, 2)}
     if (mapping) {
       mapping.failureCount++;
       mapping.lastUpdated = new Date().toISOString();
+      // 持久化更新
+      this.persistMapping(mapping);
     }
   }
 
@@ -583,6 +839,8 @@ ${JSON.stringify(elementsSummary, null, 2)}
     if (mapping) {
       mapping.successCount++;
       mapping.lastUpdated = new Date().toISOString();
+      // 持久化更新
+      this.persistMapping(mapping);
     }
   }
 
@@ -594,7 +852,7 @@ ${JSON.stringify(elementsSummary, null, 2)}
   }
 
   /**
-   * 加载映射
+   * 加载映射（手动加载，用于测试或恢复）
    */
   loadMappings(mappings: ElementMapping[]): void {
     for (const mapping of mappings) {
@@ -605,13 +863,35 @@ ${JSON.stringify(elementsSummary, null, 2)}
   /**
    * 清理低效映射
    */
-  cleanupMappings(minSuccessRate: number = 0.3): void {
+  async cleanupMappings(minSuccessRate: number = 0.3): Promise<void> {
+    const toDelete: string[] = [];
+
     for (const [key, mapping] of this.elementMappings) {
       const successRate = mapping.successCount / (mapping.successCount + mapping.failureCount);
       if (successRate < minSuccessRate && mapping.failureCount > 5) {
-        this.elementMappings.delete(key);
+        toDelete.push(key);
+        // 从数据库删除
+        await this.deleteMappingFromDatabase(mapping.id);
       }
     }
+
+    // 从内存删除
+    for (const key of toDelete) {
+      this.elementMappings.delete(key);
+    }
+
+    logger.info('🧹 清理低效元素映射', { deleted: toDelete.length, remaining: this.elementMappings.size });
+  }
+
+  /**
+   * 关闭自愈引擎（释放资源）
+   */
+  close(): void {
+    if (this.db) {
+      // 不关闭 db，因为可能是共享的
+      this.db = null;
+    }
+    this.initialized = false;
   }
 }
 
@@ -626,4 +906,11 @@ export async function selfHealElement(
 ): Promise<SelfHealResult> {
   const healer = new SelfHealer(options);
   return healer.heal(selector, snapshot, action);
+}
+
+/**
+ * 创建自愈引擎实例（用于长期运行的测试会话）
+ */
+export function createSelfHealer(options?: Partial<SelfHealerConfig>): SelfHealer {
+  return new SelfHealer(options);
 }

@@ -23,6 +23,7 @@ export interface WebCommandOptions {
   quiet?: boolean;
   noAi?: boolean;
   config?: string;
+  parallel?: string;
 }
 
 /**
@@ -44,6 +45,7 @@ export function createWebCommand(): Command {
     .option('--username <user>', '登录用户名')
     .option('--password <pass>', '登录密码')
     .option('--report <formats>', '报告格式，逗号分隔: html,json,markdown', 'html')
+    .option('--parallel <number>', '并发执行：auto 自动检测 CPU 核心数，或指定数字如 4', '1')
     .action(async (url: string | undefined, options: WebCommandOptions) => {
       // 如果没有提供 URL，交互式提问
       if (!url) {
@@ -162,6 +164,17 @@ async function executeWebTest(url: string, options: WebCommandOptions): Promise<
   const timeoutMs = (options.timeout || 30) * 60 * 1000;
   const depth = parseInt(String(options.depth || '3'), 10);
 
+  // 解析并行度
+  let parallelism: number | 'auto' = 1;
+  if (options.parallel === 'auto') {
+    parallelism = 'auto';
+  } else if (options.parallel) {
+    parallelism = parseInt(options.parallel, 10);
+    if (isNaN(parallelism) || parallelism < 1) {
+      parallelism = 1;
+    }
+  }
+
   try {
     // 创建编排器
     const orchestrator = new Orchestrator({
@@ -172,6 +185,7 @@ async function executeWebTest(url: string, options: WebCommandOptions): Promise<
       devices,
       depth,
       timeout: timeoutMs,
+      parallelism,
       login: options.loginUrl
         ? {
             url: options.loginUrl,

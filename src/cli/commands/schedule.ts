@@ -181,14 +181,20 @@ async function listScheduledTasks(): Promise<void> {
   }
 
   for (const task of tasks) {
-    const status = activeJobs.has(task.id) ? chalk.green('运行中') : chalk.gray('已停止');
-    console.log(`\n${chalk.bold(task.id)}`);
+    const taskId = task.id as string;
+    const taskCron = task.cron as string;
+    const taskProject = task.project as string | undefined;
+    const taskConfigPath = task.configPath as string;
+    const taskCreatedAt = task.createdAt as string;
+
+    const status = activeJobs.has(taskId) ? chalk.green('运行中') : chalk.gray('已停止');
+    console.log(`\n${chalk.bold(taskId)}`);
     console.log(`  状态: ${status}`);
-    console.log(`  Cron: ${task.cron}`);
-    console.log(`  说明: ${describeCron(task.cron)}`);
-    console.log(`  项目: ${task.project || '未命名'}`);
-    console.log(`  配置: ${task.configPath}`);
-    console.log(`  创建: ${task.createdAt}`);
+    console.log(`  Cron: ${taskCron}`);
+    console.log(`  说明: ${describeCron(taskCron)}`);
+    console.log(`  项目: ${taskProject || '未命名'}`);
+    console.log(`  配置: ${taskConfigPath}`);
+    console.log(`  创建: ${taskCreatedAt}`);
   }
 
   console.log(chalk.gray('\n─'.repeat(50)));

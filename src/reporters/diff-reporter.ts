@@ -105,6 +105,7 @@ export class DiffReporter {
         newFailures,
         fixedIssues,
         persistentIssues,
+        persistentFailures: persistentIssues,
         passRateChange,
         durationChange,
       },
@@ -142,6 +143,21 @@ export class DiffReporter {
     const currentPath = path.join(this.config.reportsDir, `report-${currentRunId}.json`);
     const previousPath = path.join(this.config.reportsDir, `report-${previousRunId}.json`);
 
+    const current = await this.jsonReporter.read(currentPath);
+    const previous = await this.jsonReporter.read(previousPath);
+
+    if (!current || !previous) {
+      logger.fail('❌ 无法读取报告文件');
+      return null;
+    }
+
+    return this.compare(current, previous);
+  }
+
+  /**
+   * 按文件路径对比
+   */
+  async compareFiles(currentPath: string, previousPath: string): Promise<ReportDiff | null> {
     const current = await this.jsonReporter.read(currentPath);
     const previous = await this.jsonReporter.read(previousPath);
 

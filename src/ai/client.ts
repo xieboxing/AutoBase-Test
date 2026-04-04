@@ -486,6 +486,125 @@ export class AiClient {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
+  // ==================== Embedding 抽象 ====================
+
+  /**
+   * 生成文本嵌入向量
+   * 支持不同 Provider 的 Embedding API
+   */
+  async embed(text: string): Promise<number[]> {
+    if (!this.config.enabled) {
+      throw new Error('AI 客户端已禁用');
+    }
+
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
+    // OpenAI 支持 Embedding API
+    if (this.openaiClient && (this.config.provider === 'openai' || this.config.provider === 'local')) {
+      return this.embedOpenAI(text);
+    }
+
+    // Anthropic 暂不支持 Embedding API，使用降级方案
+    if (this.anthropicClient) {
+      logger.warn('Anthropic 不支持 Embedding API，使用文本哈希降级');
+      return this.embedFallback(text);
+    }
+
+    throw new Error('无法生成嵌入向量：没有可用的客户端');
+  }
+
+  /**
+   * 使用 OpenAI API 生成嵌入向量
+   */
+  private async embedOpenAI(text: string): Promise<number[]> {
+    if (!this.openaiClient) {
+      throw new Error('OpenAI 客户端未初始化');
+    }
+
+    try {
+      const response = await this.openaiClient.embeddings.create({
+        model: 'text-embedding-ada-002',
+        input: text.slice(0, 8000), // 限制输入长度
+      });
+
+      const embedding = response.data[0]?.embedding;
+      if (!embedding) {
+        throw new Error('Embedding API 返回空结果');
+      }
+
+      return embedding;
+    } catch (error) {
+      logger.warn('OpenAI Embedding 失败，使用降级方案', { error: String(error) });
+      return this.embedFallback(text);
+    }
+  }
+
+  /**
+   * 嵌入向量降级方案：使用文本哈希生成伪向量
+   * 注意：这只是降级方案，相似度计算不如真正的 Embedding 准确
+   */
+  private embedFallback(text: string): number[] {
+    const dimension = 1536; // 与 OpenAI ada-002 相同维度
+    const vector: number[] = new Array(dimension).fill(0);
+
+    // 使用简单哈希生成伪向量
+    const words = text.toLowerCase().split(/\s+/);
+    for (const word of words) {
+      let hash = 0;
+      for (let i = 0; i < word.length; i++) {
+        hash = ((hash << 5) - hash) + word.charCodeAt(i);
+        hash = hash & hash; // 转为 32 位整数
+      }
+
+      // 将哈希值映射到向量维度
+      const index = Math.abs(hash) % dimension;
+      vector[index] = (vector[index] ?? 0) + 1;
+    }
+
+    // 归一化
+    const norm = Math.sqrt(vector.reduce((sum, v) => sum + v * v, 0));
+    if (norm > 0) {
+      for (let i = 0; i < vector.length; i++) {
+        vector[i] = vector[i]! / norm;
+      }
+    }
+
+    return vector;
+  }
+
+  /**
+   * 批量生成嵌入向量
+   */
+  async embedBatch(texts: string[]): Promise<number[][]> {
+    const results: number[][] = [];
+
+    for (const text of texts) {
+      try {
+        const embedding = await this.embed(text);
+        results.push(embedding);
+      } catch (error) {
+        logger.warn('生成嵌入向量失败，使用降级方案', { error: String(error) });
+        results.push(this.embedFallback(text));
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * 检查是否支持 Embedding
+   */
+  supportsEmbedding(): boolean {
+    return this.config.enabled && (
+      this.config.provider === 'openai' ||
+      this.config.provider === 'local'
+    );
+  }
+
+  // ==================== 结束 Embedding 抽象 ====================
+
   /**
    * 关闭客户端
    */

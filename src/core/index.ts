@@ -37,3 +37,7 @@ export {
   lifecycleManager,
   type LifecycleState,
 } from './lifecycle.js';
+export {
+  TestScheduler,
+  createTestScheduler,
+} from './test-scheduler.js';

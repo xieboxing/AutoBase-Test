@@ -37,10 +37,21 @@ data/**/
 .env.local
 .env.*.local
 
-# ===== Database files（本地数据库）=====
-*.db
-*.sqlite
-*.sqlite3
+# ===== Database files（项目数据库）=====
+# 默认忽略数据库文件
+# *.db
+# *.sqlite
+# *.sqlite3
+
+# 但保留项目主数据库和向量扩展（用户选择上传）
+!db/sqlite.db
+!db/ext/
+db/ext/**/*.dll
+db/ext/**/*.so
+db/ext/**/*.dylib
+
+# 忽略旧的 knowledge 目录数据库
+data/knowledge/*.db
 
 # ===== IDE =====
 .vscode/

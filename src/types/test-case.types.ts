@@ -31,7 +31,7 @@ export type TestType =
 /**
  * 测试平台
  */
-export type Platform = 'pc-web' | 'h5-web' | 'android-app' | 'api';
+export type Platform = 'pc-web' | 'h5-web' | 'android-app' | 'api' | 'all';
 
 /**
  * 测试状态
@@ -125,5 +125,10 @@ export interface TestCaseMetadata {
   skip?: boolean;
   skipReason?: string;
   executionFrequency?: string;
+  // 业务流相关元数据
+  flowId?: string;
+  flowType?: string;
+  criticalSteps?: string[];
+  businessFlow?: boolean;
 }
 

@@ -99,7 +99,11 @@ export class DeviceManager {
    * 执行 adb 命令（自动处理路径引号）
    */
   protected async adb(cmd: string, options?: { timeout?: number }): Promise<{ stdout: string; stderr: string }> {
-    return execAsync(`"${this.adbPath}" ${cmd}`, options);
+    const result = await execAsync(`"${this.adbPath}" ${cmd}`, options);
+    return {
+      stdout: result.stdout.toString(),
+      stderr: result.stderr.toString(),
+    };
   }
 
   /**

@@ -52,6 +52,7 @@ export interface ReportDiff {
     newFailures: string[];
     fixedIssues: string[];
     persistentIssues: string[];
+    persistentFailures: string[];  // alias for persistentIssues
     passRateChange: number;
     durationChange: number;
   };

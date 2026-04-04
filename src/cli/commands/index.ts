@@ -9,3 +9,5 @@ export { createDoctorCommand } from './doctor.js';
 export { createInitCommand } from './init.js';
 export { createScheduleCommand } from './schedule.js';
 export { createSetupCommand } from './setup.js';
+export { createVisualCommand } from './visual.js';
+export { createExploreCommand } from './explore.js';

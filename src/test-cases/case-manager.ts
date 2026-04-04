@@ -330,6 +330,7 @@ export class CaseManager {
       'h5-web': 0,
       'android-app': 0,
       'api': 0,
+      'all': 0,
     };
 
     for (const testCase of cases) {

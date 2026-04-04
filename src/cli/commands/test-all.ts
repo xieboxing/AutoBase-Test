@@ -4,6 +4,7 @@ import inquirer from 'inquirer';
 import { logger } from '@/core/logger.js';
 import { ConsoleReporter } from '@/reporters/console-reporter.js';
 import { ReportGenerator } from '@/reporters/report-generator.js';
+import type { TestRunResult, TestCaseResult } from '@/types/test-result.types.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -152,7 +153,8 @@ async function executeAllTest(options: { config?: string }): Promise<void> {
     console.log(`${chalk.bold('总计')}: ${totalPassed}/${totalTests} 通过 (${((totalPassed / totalTests) * 100).toFixed(1)}%)`);
 
     // 生成综合报告
-    const combinedResult = {
+    const emptyCategoryResult = { total: 0, passed: 0, failed: 0, skipped: 0, blocked: 0, passRate: 0, avgDurationMs: 0 };
+    const combinedResult: TestRunResult = {
       runId: `all-${Date.now()}`,
       project: config.project?.name || '全量测试',
       startTime: new Date().toISOString(),
@@ -161,8 +163,16 @@ async function executeAllTest(options: { config?: string }): Promise<void> {
       platform: 'all' as const,
       environment: {},
       summary: { total: totalTests, passed: totalPassed, failed: totalFailed, skipped: 0, blocked: 0, passRate: totalPassed / totalTests },
-      categories: allResults[0]?.result.categories as Record<string, unknown>,
-      cases: allResults.flatMap(r => r.result.cases as Array<Record<string, unknown>>),
+      categories: {
+        functional: emptyCategoryResult,
+        visual: emptyCategoryResult,
+        performance: { ...emptyCategoryResult, metrics: {} },
+        security: { ...emptyCategoryResult, issues: [] },
+        accessibility: { ...emptyCategoryResult, violations: [] },
+        compatibility: emptyCategoryResult,
+        stability: emptyCategoryResult,
+      },
+      cases: allResults.flatMap(r => r.result.cases as TestCaseResult[]),
       aiAnalysis: {
         overallAssessment: '全量测试完成',
         criticalIssues: [],

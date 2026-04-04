@@ -35,7 +35,8 @@ async function runDoctor(options: { fix?: boolean }): Promise<void> {
   // 检查 Node.js 版本
   console.log(chalk.gray('\n检查 Node.js 版本...'));
   const nodeVersion = process.version;
-  const nodeMajor = parseInt(nodeVersion.slice(1).split('.')[0], 10);
+  const majorVersion = nodeVersion.slice(1).split('.')[0];
+  const nodeMajor = parseInt(majorVersion ?? '0', 10);
   if (nodeMajor >= 20) {
     results.push({ name: 'Node.js', status: 'ok', message: `版本 ${nodeVersion} ✓` });
     console.log(chalk.green(`  ✓ Node.js ${nodeVersion}`));
@@ -100,7 +101,10 @@ async function runDoctor(options: { fix?: boolean }): Promise<void> {
   try {
     const { stdout } = await execAsync('adb version').catch(() => ({ stdout: '' }));
     if (stdout.includes('Android Debug Bridge')) {
-      const version = stdout.split('\n')[0].split(' ')[3];
+      const lines = stdout.split('\n');
+      const firstLine = lines[0];
+      const parts = firstLine?.split(' ') ?? [];
+      const version = parts[3] ?? 'unknown';
       results.push({ name: 'ADB', status: 'ok', message: `版本 ${version} ✓` });
       console.log(chalk.green(`  ✓ ADB ${version}`));
     } else {

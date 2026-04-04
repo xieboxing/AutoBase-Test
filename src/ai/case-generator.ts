@@ -1,6 +1,7 @@
 import type { PageSnapshot } from '@/types/crawler.types.js';
 import type { TestCase, TestStep } from '@/types/test-case.types.js';
 import type { PageAnalysisResult } from '@/types/ai.types.js';
+import type { HistoricalContext } from '@/types/knowledge.types.js';
 import { AiClient, getAiClient } from './client.js';
 import { PageAnalyzer } from './analyzer.js';
 import {
@@ -9,6 +10,11 @@ import {
 } from './prompts/generate-cases.prompt.js';
 import { logger } from '@/core/logger.js';
 import { nanoid } from 'nanoid';
+import { createRagMemoryEngine } from '@/knowledge/rag-memory.js';
+import type { RagMemoryEngine } from '@/knowledge/rag-memory.js';
+import type { RagRetrievalResult } from '@/types/rag.types.js';
+import { getDatabase, type KnowledgeDatabase } from '@/knowledge/db/index.js';
+import { eventBus, TestEventType } from '@/core/event-bus.js';
 
 /**
  * 测试用例生成器配置
@@ -20,6 +26,14 @@ export interface CaseGeneratorConfig {
   generateSmokeTests: boolean;
   generateFormTests: boolean;
   generateNavigationTests: boolean;
+  /** 是否使用历史上下文优化生成 */
+  useHistoricalContext: boolean;
+  /** 是否使用 RAG 记忆检索 */
+  useRagMemory: boolean;
+  /** RAG 检索数量限制 */
+  ragMemoryLimit: number;
+  /** 项目 ID（用于 RAG 检索） */
+  projectId?: string;
 }
 
 /**
@@ -32,6 +46,9 @@ const DEFAULT_GENERATOR_CONFIG: CaseGeneratorConfig = {
   generateSmokeTests: true,
   generateFormTests: true,
   generateNavigationTests: true,
+  useHistoricalContext: true,
+  useRagMemory: true,
+  ragMemoryLimit: 3,
 };
 
 /**
@@ -41,17 +58,32 @@ export class CaseGenerator {
   private config: CaseGeneratorConfig;
   private aiClient: AiClient;
   private analyzer: PageAnalyzer;
+  private ragMemory: RagMemoryEngine | null = null;
 
   constructor(config: Partial<CaseGeneratorConfig> = {}, aiClient?: AiClient) {
     this.config = { ...DEFAULT_GENERATOR_CONFIG, ...config };
     this.aiClient = aiClient ?? getAiClient();
     this.analyzer = new PageAnalyzer({ useAi: this.config.useAi }, this.aiClient);
+
+    // 初始化 RAG 记忆引擎
+    if (this.config.useRagMemory) {
+      try {
+        this.ragMemory = createRagMemoryEngine(getDatabase());
+      } catch {
+        logger.warn('⚠️ RAG 记忆引擎初始化失败');
+      }
+    }
   }
 
   /**
    * 为页面生成测试用例
+   * @param snapshot 页面快照
+   * @param historicalContext 历史上下文（可选）
    */
-  async generateFromSnapshot(snapshot: PageSnapshot): Promise<TestCase[]> {
+  async generateFromSnapshot(
+    snapshot: PageSnapshot,
+    historicalContext?: HistoricalContext,
+  ): Promise<TestCase[]> {
     logger.ai('🤖 开始生成测试用例', { url: snapshot.url });
 
     // 分析页面
@@ -60,15 +92,15 @@ export class CaseGenerator {
     // 检查是否使用 AI
     if (!this.config.useAi || !this.aiClient.isEnabled() || !this.aiClient.isConfigured()) {
       logger.info('📍 使用规则引擎生成测试用例（AI 降级模式）');
-      return this.generateFromRules(snapshot, analysis);
+      return this.generateFromRules(snapshot, analysis, historicalContext);
     }
 
     try {
       // 使用 AI 生成
-      return await this.generateFromAi(snapshot, analysis);
+      return await this.generateFromAi(snapshot, analysis, historicalContext);
     } catch (error) {
       logger.warn('⚠️ AI 生成失败，降级到规则引擎', { error: String(error) });
-      return this.generateFromRules(snapshot, analysis);
+      return this.generateFromRules(snapshot, analysis, historicalContext);
     }
   }
 
@@ -78,7 +110,27 @@ export class CaseGenerator {
   private async generateFromAi(
     snapshot: PageSnapshot,
     analysis: PageAnalysisResult,
+    historicalContext?: HistoricalContext,
   ): Promise<TestCase[]> {
+    // 检索相似历史记忆
+    let similarMemories: RagRetrievalResult[] = [];
+    if (this.config.useRagMemory && this.ragMemory) {
+      similarMemories = this.retrieveSimilarCaseMemories(snapshot);
+      if (similarMemories.length > 0) {
+        logger.info('📚 检索到相似测试用例记忆', {
+          count: similarMemories.length,
+          topSimilarity: similarMemories[0]?.similarity.toFixed(2),
+        });
+
+        // 发出 RAG 检索事件
+        eventBus.emitSafe(TestEventType.RAG_RETRIEVING, {
+          queryType: 'case_generation',
+          projectId: this.config.projectId ?? 'unknown',
+          limit: this.config.ragMemoryLimit,
+        });
+      }
+    }
+
     const prompt = buildGenerateCasesPrompt({
       pageUrl: snapshot.url,
       pageTitle: snapshot.title,
@@ -86,6 +138,8 @@ export class CaseGenerator {
       pageAnalysis: analysis,
       interactiveElements: snapshot.interactiveElements,
       forms: snapshot.forms,
+      historicalContext: this.config.useHistoricalContext ? historicalContext : undefined,
+      similarMemories: this.buildMemoryContext(similarMemories),
     });
 
     const response = await this.aiClient.chatWithRetry(
@@ -98,9 +152,66 @@ export class CaseGenerator {
     // 转换为 TestCase 格式
     const cases: TestCase[] = result.cases.map(tc => this.normalizeTestCase(tc));
 
-    logger.ai('✅ AI 生成测试用例完成', { count: cases.length });
+    // 如果有历史上下文，根据历史失败率调整优先级
+    if (historicalContext && this.config.useHistoricalContext) {
+      this.adjustPrioritiesBasedOnHistory(cases, historicalContext);
+    }
+
+    logger.ai('✅ AI 生成测试用例完成', { count: cases.length, usedMemories: similarMemories.length });
+
+    // 发出 RAG 检索完成事件
+    if (similarMemories.length > 0) {
+      eventBus.emitSafe(TestEventType.RAG_RETRIEVED, {
+        queryType: 'case_generation',
+        memoriesCount: similarMemories.length,
+        avgSimilarity: similarMemories.reduce((sum, m) => sum + m.similarity, 0) / similarMemories.length,
+        retrievalMethod: 'text',
+        durationMs: 0,
+      });
+    }
 
     return cases;
+  }
+
+  /**
+   * 检索相似的测试用例记忆
+   */
+  private retrieveSimilarCaseMemories(snapshot: PageSnapshot): RagRetrievalResult[] {
+    if (!this.ragMemory) return [];
+
+    const queryText = [
+      snapshot.title,
+      snapshot.url,
+      snapshot.interactiveElements.slice(0, 5).map(e => e.text || e.tag).join(' '),
+    ].filter(Boolean).join(' ');
+
+    return this.ragMemory.search({
+      queryText,
+      projectId: this.config.projectId,
+      memoryTypes: ['new_state', 'business_flow', 'exploration', 'failure'],
+      limit: this.config.ragMemoryLimit,
+      minSimilarity: 0.2,
+    });
+  }
+
+  /**
+   * 构建历史记忆上下文文本
+   */
+  private buildMemoryContext(memories: RagRetrievalResult[]): string | undefined {
+    if (memories.length === 0) return undefined;
+
+    const contextParts: string[] = ['## 历史相似测试案例（供参考）\n'];
+
+    for (const { memory, similarity } of memories) {
+      contextParts.push(`### 案例 ${memory.id}（相似度: ${similarity.toFixed(2)}）`);
+      contextParts.push(`- 类型: ${memory.memoryType}`);
+      if (memory.contextUrl) contextParts.push(`- URL: ${memory.contextUrl}`);
+      contextParts.push(`- 执行结果: ${memory.executionResult.slice(0, 150)}`);
+      if (memory.solutionStrategy) contextParts.push(`- 解决策略: ${memory.solutionStrategy}`);
+      contextParts.push('');
+    }
+
+    return contextParts.join('\n');
   }
 
   /**
@@ -109,6 +220,7 @@ export class CaseGenerator {
   private generateFromRules(
     snapshot: PageSnapshot,
     analysis: PageAnalysisResult,
+    historicalContext?: HistoricalContext,
   ): TestCase[] {
     const cases: TestCase[] = [];
     let caseNumber = 1;
@@ -141,7 +253,91 @@ export class CaseGenerator {
       }
     }
 
+    // 如果有历史上下文，调整优先级并补充历史失败用例的重测
+    if (historicalContext && this.config.useHistoricalContext) {
+      this.adjustPrioritiesBasedOnHistory(cases, historicalContext);
+      this.addFailedCaseRetests(cases, snapshot, historicalContext);
+    }
+
     return cases;
+  }
+
+  /**
+   * 根据历史上下文调整用例优先级
+   */
+  private adjustPrioritiesBasedOnHistory(
+    cases: TestCase[],
+    historicalContext: HistoricalContext,
+  ): void {
+    for (const tc of cases) {
+      // 检查是否有历史统计数据
+      const stats = historicalContext.caseStatistics.find(
+        s => s.caseId === tc.id || s.caseName === tc.name,
+      );
+
+      if (stats) {
+        // 高失败率用例提升优先级
+        if (stats.failRate > 0.3 && tc.priority !== 'P0') {
+          const newPriority = stats.failRate > 0.5 ? 'P0' : 'P1';
+          logger.info(`📊 根据历史失败率调整优先级: ${tc.name} (${tc.priority} → ${newPriority})`);
+          tc.priority = newPriority;
+        }
+
+        // 连续多次通过的稳定用例可以降低优先级（但不低于 P3）
+        if (stats.consecutivePasses >= 10 && tc.priority !== 'P3') {
+          logger.info(`📊 根据历史稳定性调整优先级: ${tc.name} (${tc.priority} → P3)`);
+          tc.priority = 'P3';
+        }
+      }
+    }
+  }
+
+  /**
+   * 补充历史失败用例的重测
+   */
+  private addFailedCaseRetests(
+    cases: TestCase[],
+    snapshot: PageSnapshot,
+    historicalContext: HistoricalContext,
+  ): void {
+    // 只补充 URL 相匹配的历史失败用例
+    const relevantFailedCases = historicalContext.previousFailedCases.filter(
+      fc => snapshot.url.includes(fc.urlPattern || '') || !fc.urlPattern,
+    );
+
+    for (const failedCase of relevantFailedCases.slice(0, 5)) {
+      // 检查是否已存在相同名称的用例
+      const exists = cases.some(c => c.name === failedCase.caseName);
+      if (!exists) {
+        // 创建一个重测用例
+        const retestCase: TestCase = {
+          id: `tc-retest-${nanoid(6)}`,
+          name: `[重测] ${failedCase.caseName}`,
+          description: `历史失败用例重测 - 原失败原因: ${failedCase.failureReason}`,
+          priority: 'P0',
+          type: 'functional',
+          platform: [this.config.platform],
+          tags: ['retest', 'historical-failure', 'auto-generated'],
+          steps: [
+            {
+              order: 1,
+              action: 'navigate',
+              value: snapshot.url,
+              description: `打开页面 ${snapshot.url}`,
+            },
+            {
+              order: 2,
+              action: 'assert',
+              type: 'element-visible',
+              target: failedCase.failedStep?.target || 'body',
+              description: `验证之前失败的元素`,
+            },
+          ],
+        };
+        cases.unshift(retestCase);
+        logger.info(`📋 补充历史失败用例重测: ${failedCase.caseName}`);
+      }
+    }
   }
 
   /**
@@ -467,13 +663,18 @@ export class CaseGenerator {
 
   /**
    * 为多个页面批量生成测试用例
+   * @param snapshots 页面快照数组
+   * @param historicalContext 历史上下文（可选）
    */
-  async generateBatch(snapshots: PageSnapshot[]): Promise<TestCase[]> {
+  async generateBatch(
+    snapshots: PageSnapshot[],
+    historicalContext?: HistoricalContext,
+  ): Promise<TestCase[]> {
     const allCases: TestCase[] = [];
 
     for (const snapshot of snapshots) {
       try {
-        const cases = await this.generateFromSnapshot(snapshot);
+        const cases = await this.generateFromSnapshot(snapshot, historicalContext);
         allCases.push(...cases);
       } catch (error) {
         logger.fail('❌ 测试用例生成失败', { url: snapshot.url, error: String(error) });
@@ -486,11 +687,15 @@ export class CaseGenerator {
 
 /**
  * 快捷生成函数
+ * @param snapshot 页面快照
+ * @param options 生成器配置
+ * @param historicalContext 历史上下文（可选）
  */
 export async function generateTestCases(
   snapshot: PageSnapshot,
   options?: Partial<CaseGeneratorConfig>,
+  historicalContext?: HistoricalContext,
 ): Promise<TestCase[]> {
   const generator = new CaseGenerator(options);
-  return generator.generateFromSnapshot(snapshot);
+  return generator.generateFromSnapshot(snapshot, historicalContext);
 }

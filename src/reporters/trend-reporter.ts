@@ -1,6 +1,9 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { logger } from '@/core/logger.js';
 import type { TrendDataPoint, TrendReport } from '@/types/report.types.js';
 import { getDatabase, type KnowledgeDatabase } from '@/knowledge/db/index.js';
+import { JsonReporter } from './json-reporter.js';
 
 /**
  * 趋势报告配置
@@ -238,6 +241,68 @@ export class TrendReporter {
     const minutes = Math.floor(ms / 60000);
     const seconds = Math.round((ms % 60000) / 1000);
     return `${minutes}m ${seconds}s`;
+  }
+
+  /**
+   * 分析报告目录中的趋势
+   */
+  async analyze(reportDir: string, lastN: number): Promise<{
+    passRates: TrendDataPoint[];
+    issueCounts: TrendDataPoint[];
+    summary: {
+      avgPassRate: number;
+      maxPassRate: number;
+      minPassRate: number;
+    };
+  }> {
+    const jsonReporter = new JsonReporter({ outputDir: reportDir });
+    const reports = await jsonReporter.list();
+    const recentReports = reports.slice(0, lastN);
+
+    const passRates: TrendDataPoint[] = [];
+    const issueCounts: TrendDataPoint[] = [];
+
+    for (const fileName of recentReports) {
+      const filePath = path.join(reportDir, fileName);
+      const result = await jsonReporter.read(filePath);
+
+      if (result) {
+        passRates.push({
+          runId: result.runId,
+          date: result.startTime,
+          passRate: result.summary.passRate,
+          totalCases: result.summary.total,
+          failedCases: result.summary.failed,
+          avgDuration: result.duration,
+        });
+
+        issueCounts.push({
+          runId: result.runId,
+          date: result.startTime,
+          passRate: result.summary.passRate,
+          totalCases: result.summary.total,
+          failedCases: result.summary.failed,
+          avgDuration: result.duration,
+        });
+      }
+    }
+
+    const passRateValues = passRates.map(p => p.passRate);
+    const avgPassRate = passRateValues.length > 0
+      ? passRateValues.reduce((sum, r) => sum + r, 0) / passRateValues.length
+      : 0;
+    const maxPassRate = passRateValues.length > 0 ? Math.max(...passRateValues) : 0;
+    const minPassRate = passRateValues.length > 0 ? Math.min(...passRateValues) : 0;
+
+    return {
+      passRates,
+      issueCounts,
+      summary: {
+        avgPassRate,
+        maxPassRate,
+        minPassRate,
+      },
+    };
   }
 }
 

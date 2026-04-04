@@ -200,8 +200,8 @@ auto-test-platform/
 │   │   ├── element-mapping.ts             # 元素定位映射（自愈用）
 │   │   ├── optimization-log.ts            # 优化记录
 │   │   ├── best-practices.ts              # 最佳实践积累
-│   │   └── db/                            # SQLite 本地数据库
-│   │       └── knowledge.db
+│   │   └── db/                            # 数据库模块
+│   │       └── index.ts                   # SQLite 数据库管理（支持向量扩展）
 │   │
 │   ├── utils/                             # 工具函数
 │   │   ├── file.ts                        # 文件操作
@@ -227,6 +227,13 @@ auto-test-platform/
 │       ├── server.ts                      # 本地 Web 服务
 │       └── pages/                         # 简单的报告查看页面
 │
+├── db/                                    # 项目数据库（SQLite + 向量扩展）
+│   ├── sqlite.db                          # 主数据库（测试结果、知识库）
+│   └── ext/                               # SQLite 向量扩展（用于 AI 语义搜索）
+│       ├── windows/vec0.dll               # Windows 向量扩展
+│       ├── linux/vec0.so                  # Linux 向量扩展
+│       └── macos/vec0.so                  # macOS 向量扩展
+│
 ├── test-suites/                           # 用户的测试套件存储目录
 │   ├── .gitkeep
 │   └── example/                           # 示例项目
@@ -245,6 +252,7 @@ auto-test-platform/
 ├── scripts/                               # 辅助脚本
 │   ├── setup-android.ts                   # 安卓环境检查与设置
 │   ├── setup-browsers.ts                  # 浏览器安装
+│   ├── db-migrate.ts                      # 数据库迁移脚本
 │   └── clean.ts                           # 清理临时数据
 │
 ├── tests/                                 # 框架自身的测试
@@ -276,7 +284,7 @@ auto-test-platform/
 | API 测试 | 原生 fetch + Zod | 接口请求 + 契约校验 |
 | AI 客户端 | Anthropic SDK / OpenAI SDK | 多模型支持 |
 | CLI | Commander.js + Inquirer | 命令行交互 |
-| 本地数据库 | better-sqlite3 | 存储测试历史/知识库 |
+| 本地数据库 | better-sqlite3 + vec0 | 存储测试历史/知识库 + 向量搜索 |
 | 报告模板 | Handlebars | HTML 报告生成 |
 | 图表 | ECharts（嵌入报告HTML） | 数据可视化 |
 | 日志 | pino | 高性能日志 |
@@ -405,6 +413,122 @@ npm run lint                   # ESLint 检查
 npm run lint:fix               # ESLint 修复
 npm run format                 # Prettier 格式化
 npm run typecheck              # TypeScript 类型检查
+npm run db:migrate             # 数据库迁移（从旧版迁移）
+npm run db:init                # 初始化数据库
+```
+
+## 🗄️ 数据库设计
+
+### 数据库位置
+- **主数据库**: `db/sqlite.db` - 存储所有测试结果、知识库数据
+- **向量扩展**: `db/ext/` - SQLite 向量扩展，用于 AI 语义搜索
+
+### 平台分类存储
+测试结果按平台分类存储，支持以下平台：
+- `pc-web` - PC 桌面端 Web 测试
+- `h5-web` - H5 移动端 Web 测试
+- `android-app` - Android APP 测试
+- `api` - API 接口测试
+
+### 核心表结构
+
+#### test_runs（测试运行记录）
+```sql
+CREATE TABLE test_runs (
+  id TEXT PRIMARY KEY,
+  project TEXT NOT NULL,
+  platform TEXT NOT NULL,              -- 'pc-web' | 'h5-web' | 'android-app' | 'api'
+  test_type TEXT DEFAULT 'full',       -- 'smoke' | 'full' | 'performance' | 'security'
+  start_time TEXT NOT NULL,
+  end_time TEXT,
+  duration_ms INTEGER DEFAULT 0,
+  total_cases INTEGER DEFAULT 0,
+  passed INTEGER DEFAULT 0,
+  failed INTEGER DEFAULT 0,
+  skipped INTEGER DEFAULT 0,
+  blocked INTEGER DEFAULT 0,
+  pass_rate REAL DEFAULT 0,
+  status TEXT DEFAULT 'running',
+  -- 平台特定环境信息
+  browser TEXT,
+  device TEXT,
+  os TEXT,
+  viewport_width INTEGER,
+  viewport_height INTEGER,
+  app_version TEXT,
+  app_package TEXT,
+  -- AI 分析
+  ai_analysis TEXT,
+  risk_level TEXT,
+  created TEXT NOT NULL
+);
+```
+
+#### test_results（测试用例结果）
+```sql
+CREATE TABLE test_results (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  case_id TEXT NOT NULL,
+  case_name TEXT NOT NULL,
+  platform TEXT NOT NULL,
+  test_category TEXT DEFAULT 'functional',
+  status TEXT NOT NULL,
+  priority TEXT DEFAULT 'P2',
+  duration_ms INTEGER DEFAULT 0,
+  retry_count INTEGER DEFAULT 0,
+  error_message TEXT,
+  ai_error_analysis TEXT,
+  self_healed INTEGER DEFAULT 0,
+  embedding BLOB,                      -- 向量嵌入（用于语义搜索）
+  FOREIGN KEY (run_id) REFERENCES test_runs(id)
+);
+```
+
+#### element_mappings（元素定位映射）
+```sql
+CREATE TABLE element_mappings (
+  id TEXT PRIMARY KEY,
+  project TEXT NOT NULL,
+  platform TEXT NOT NULL,              -- 区分不同平台的元素
+  page_url TEXT NOT NULL,
+  element_name TEXT,
+  original_selector TEXT NOT NULL,
+  alternative_selectors TEXT,
+  last_working_selector TEXT,
+  selector_type TEXT DEFAULT 'css',
+  success_count INTEGER DEFAULT 0,
+  failure_count INTEGER DEFAULT 0,
+  success_rate REAL DEFAULT 0,
+  embedding BLOB,                      -- 用于语义匹配元素
+  created TEXT NOT NULL,
+  updated TEXT NOT NULL
+);
+```
+
+### 向量扩展功能
+当向量扩展可用时，支持以下 AI 增强功能：
+- **语义搜索测试用例**: 根据描述搜索相似的测试用例
+- **智能元素匹配**: 根据元素描述自动找到最佳选择器
+- **失败模式聚类**: 自动归类相似的失败模式
+- **测试推荐**: 根据历史数据推荐应执行的测试
+
+### 数据库操作命令
+```bash
+# 初始化数据库
+npm run db:init
+
+# 从旧版迁移数据
+npm run db:migrate
+
+# 查看数据库统计
+npx tsx -e "
+import { getDatabase } from './src/knowledge/db/index.js';
+const db = getDatabase();
+await db.initialize();
+console.log(db.getStats());
+db.close();
+"
 ```
 
 ## 📝 代码规范

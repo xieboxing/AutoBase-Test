@@ -39,6 +39,69 @@ export enum TestEventType {
   DEVICE_DISCONNECTED = 'device:disconnected',
   BROWSER_LAUNCH = 'browser:launch',
   BROWSER_CLOSE = 'browser:close',
+
+  // ===== 新增：智能化升级相关事件 =====
+
+  // 知识库事件
+  KNOWLEDGE_LOADED = 'knowledge:loaded',
+  KNOWLEDGE_SAVED = 'knowledge:saved',
+
+  // 调度器事件
+  SCHEDULER_DECISION = 'scheduler:decision',
+  SCHEDULER_SKIP = 'scheduler:skip',
+  SCHEDULER_PRIORITIZE = 'scheduler:prioritize',
+  SCHEDULING_COMPLETE = 'scheduling:complete',
+
+  // 失败模式事件
+  FAILURE_PATTERN_MATCHED = 'failure:pattern-matched',
+  FAILURE_PATTERN_CREATED = 'failure:pattern-created',
+  AUTO_FIX_APPLIED = 'failure:auto-fix-applied',
+  AUTO_FIX_SUCCESS = 'failure:auto-fix-success',
+  AUTO_FIX_FAILED = 'failure:auto-fix-failed',
+
+  // RAG 事件
+  RAG_RETRIEVING = 'rag:retrieving',
+  RAG_RETRIEVED = 'rag:retrieved',
+  RAG_MEMORY_SAVED = 'rag:memory-saved',
+
+  // 视觉回归事件
+  VISUAL_BASELINE_CREATED = 'visual:baseline-created',
+  VISUAL_DIFF = 'visual:diff',
+  VISUAL_PASSED = 'visual:passed',
+  VISUAL_FAILED = 'visual:failed',
+
+  // 并发执行事件
+  WORKER_LAUNCH = 'worker:launch',
+  WORKER_MESSAGE = 'worker:message',
+  WORKER_ERROR = 'worker:error',
+  WORKER_SHUTDOWN = 'worker:shutdown',
+  PARALLEL_START = 'parallel:start',
+  PARALLEL_COMPLETE = 'parallel:complete',
+
+  // 状态图谱事件
+  STATE_GRAPH_NODE_CREATED = 'state-graph:node-created',
+  STATE_GRAPH_EDGE_CREATED = 'state-graph:edge-created',
+  STATE_GRAPH_TRANSITION = 'state-graph:transition',
+  STATE_GRAPH_PATH_FOUND = 'state-graph:path-found',
+  STATE_DISCOVERED = 'state:discovered',
+  STATE_TRANSITION = 'state:transition',
+
+  // 业务流事件
+  BUSINESS_FLOW_DETECTED = 'business-flow:detected',
+  BUSINESS_FLOW_ANALYZED = 'business-flow:analyzed',
+  BUSINESS_FLOW_EXECUTED = 'business-flow:executed',
+
+  // 探索式测试事件
+  EXPLORATION_START = 'exploration:start',
+  EXPLORATION_STEP = 'exploration:step',
+  EXPLORATION_NEW_STATE = 'exploration:new-state',
+  EXPLORATION_ANOMALY = 'exploration:anomaly',
+  EXPLORATION_REWARD = 'exploration:reward',
+  EXPLORATION_COMPLETE = 'exploration:complete',
+
+  // 优化事件
+  OPTIMIZATION_SUGGESTED = 'optimization:suggested',
+  OPTIMIZATION_APPLIED = 'optimization:applied',
 }
 
 /**
@@ -74,6 +137,287 @@ export interface TestEventMap {
   [TestEventType.DEVICE_DISCONNECTED]: { deviceId: string };
   [TestEventType.BROWSER_LAUNCH]: { browser: string; headless: boolean };
   [TestEventType.BROWSER_CLOSE]: { browser: string };
+
+  // ===== 新增：智能化升级事件类型 =====
+
+  // 知识库事件
+  [TestEventType.KNOWLEDGE_LOADED]: {
+    project: string;
+    platform: string;
+    passedCasesCount: number;
+    failedCasesCount: number;
+    stableCasesCount: number;
+    highRiskCasesCount: number;
+    loadTimeMs: number;
+  };
+  [TestEventType.KNOWLEDGE_SAVED]: {
+    project: string;
+    type: 'statistics' | 'pattern' | 'mapping' | 'optimization';
+    id: string;
+  };
+
+  // 调度器事件
+  [TestEventType.SCHEDULER_DECISION]: {
+    caseId: string;
+    decision: 'schedule' | 'skip' | 'defer';
+    riskScore: number;
+    reason: string;
+  };
+  [TestEventType.SCHEDULER_SKIP]: {
+    caseId: string;
+    reason: string;
+    consecutivePasses: number;
+  };
+  [TestEventType.SCHEDULER_PRIORITIZE]: {
+    caseId: string;
+    order: number;
+    riskScore: number;
+  };
+  [TestEventType.SCHEDULING_COMPLETE]: {
+    projectId: string;
+    platform: string;
+    summary: {
+      totalCases: number;
+      scheduledCount: number;
+      skippedCount: number;
+      highRiskCount: number;
+      avgRiskScore: number;
+    };
+    duration: number;
+  };
+
+  // 失败模式事件
+  [TestEventType.FAILURE_PATTERN_MATCHED]: {
+    patternId: string;
+    patternType: string;
+    frequency: number;
+    autoFixable: boolean;
+  };
+  [TestEventType.FAILURE_PATTERN_CREATED]: {
+    patternId: string;
+    patternType: string;
+    patternKey: string;
+    description: string;
+  };
+  [TestEventType.AUTO_FIX_APPLIED]: {
+    caseId: string;
+    patternId: string;
+    fixType: string;
+    fixValue?: string | number;
+  };
+  [TestEventType.AUTO_FIX_SUCCESS]: {
+    caseId: string;
+    patternId: string;
+    retryCount: number;
+  };
+  [TestEventType.AUTO_FIX_FAILED]: {
+    caseId: string;
+    patternId: string;
+    error: Error;
+    needsManualIntervention: boolean;
+  };
+
+  // RAG 事件
+  [TestEventType.RAG_RETRIEVING]: {
+    queryType: string;
+    projectId: string;
+    limit: number;
+  };
+  [TestEventType.RAG_RETRIEVED]: {
+    queryType: string;
+    memoriesCount: number;
+    avgSimilarity: number;
+    retrievalMethod: 'vector' | 'text' | 'hybrid';
+    durationMs: number;
+  };
+  [TestEventType.RAG_MEMORY_SAVED]: {
+    memoryId: string;
+    memoryType: string;
+    projectId: string;
+    caseId?: string;
+  };
+
+  // 视觉回归事件
+  [TestEventType.VISUAL_BASELINE_CREATED]: {
+    baselineId: string;
+    pageUrl: string;
+    imagePath: string;
+  };
+  [TestEventType.VISUAL_DIFF]: {
+    baselineId: string;
+    caseId: string;
+    diffPercentage: number;
+    passed: boolean;
+  };
+  [TestEventType.VISUAL_PASSED]: {
+    caseId: string;
+    pageUrl: string;
+    diffPercentage: number;
+  };
+  [TestEventType.VISUAL_FAILED]: {
+    caseId: string;
+    pageUrl: string;
+    diffPercentage: number;
+    diffImagePath: string;
+  };
+
+  // 并发执行事件
+  [TestEventType.WORKER_LAUNCH]: {
+    workerId: string;
+    workerIndex: number;
+    pid: number;
+  };
+  [TestEventType.WORKER_MESSAGE]: {
+    workerId: string;
+    messageType: string;
+    taskId?: string;
+  };
+  [TestEventType.WORKER_ERROR]: {
+    workerId: string;
+    error: Error;
+    taskId?: string;
+  };
+  [TestEventType.WORKER_SHUTDOWN]: {
+    workerId: string;
+    completedTasks: number;
+    failedTasks: number;
+  };
+  [TestEventType.PARALLEL_START]: {
+    runId: string;
+    workerCount: number;
+    totalCases: number;
+  };
+  [TestEventType.PARALLEL_COMPLETE]: {
+    runId: string;
+    passed: number;
+    failed: number;
+    totalDurationMs: number;
+    parallelEfficiency: number;
+  };
+
+  // 状态图谱事件
+  [TestEventType.STATE_GRAPH_NODE_CREATED]: {
+    nodeHash: string;
+    stateType: string;
+    urlPattern?: string;
+  };
+  [TestEventType.STATE_GRAPH_EDGE_CREATED]: {
+    sourceHash: string;
+    targetHash: string;
+    actionType: string;
+  };
+  [TestEventType.STATE_GRAPH_TRANSITION]: {
+    sourceHash: string;
+    targetHash: string;
+    actionType: string;
+    success: boolean;
+  };
+  [TestEventType.STATE_GRAPH_PATH_FOUND]: {
+    sourceHash: string;
+    targetHash: string;
+    pathLength: number;
+    confidence: number;
+  };
+  [TestEventType.STATE_DISCOVERED]: {
+    stateId: string;
+    stateHash: string;
+    projectId: string;
+    platform: string;
+    urlPattern?: string;
+  };
+  [TestEventType.STATE_TRANSITION]: {
+    edgeId: string;
+    sourceStateHash: string;
+    targetStateHash: string;
+    action: string;
+    success: boolean;
+  };
+
+  // 业务流事件
+  [TestEventType.BUSINESS_FLOW_DETECTED]: {
+    flowId: string;
+    flowName: string;
+    flowType: string;
+    stepsCount: number;
+    confidence: number;
+  };
+  [TestEventType.BUSINESS_FLOW_ANALYZED]: {
+    pageUrl: string;
+    pageName: string;
+    flowsCount: number;
+    scenariosCount: number;
+  };
+  [TestEventType.BUSINESS_FLOW_EXECUTED]: {
+    flowId: string;
+    flowName: string;
+    passed: boolean;
+    durationMs: number;
+  };
+
+  // 探索式测试事件
+  [TestEventType.EXPLORATION_START]: {
+    trajectoryId: string;
+    project: string;
+    platform: string;
+    startUrl: string;
+    maxSteps: number;
+    maxDuration?: number;
+  };
+  [TestEventType.EXPLORATION_STEP]: {
+    trajectoryId: string;
+    stepOrder: number;
+    actionType: string;
+    target?: string;
+    reward: number;
+    isNewState: boolean;
+  };
+  [TestEventType.EXPLORATION_NEW_STATE]: {
+    trajectoryId: string;
+    stateHash: string;
+    stateType: string;
+    stateName?: string;
+    url?: string;
+  };
+  [TestEventType.EXPLORATION_ANOMALY]: {
+    trajectoryId: string;
+    anomalyId: string;
+    anomalyType: string;
+    type?: string;
+    severity: 'critical' | 'high' | 'medium' | 'low';
+    description: string;
+    pageUrl?: string;
+  };
+  [TestEventType.EXPLORATION_REWARD]: {
+    trajectoryId: string;
+    stepOrder: number;
+    rewardType: string;
+    rewardValue: number;
+    totalReward: number;
+  };
+  [TestEventType.EXPLORATION_COMPLETE]: {
+    trajectoryId: string;
+    totalSteps: number;
+    newStatesCount: number;
+    anomaliesCount: number;
+    totalReward: number;
+    durationMs?: number;
+    generatedCasesCount: number;
+  };
+
+  // 优化事件
+  [TestEventType.OPTIMIZATION_SUGGESTED]: {
+    suggestionId: string;
+    caseId?: string;
+    suggestionType: string;
+    confidence: number;
+    autoApplicable: boolean;
+  };
+  [TestEventType.OPTIMIZATION_APPLIED]: {
+    suggestionId: string;
+    caseId?: string;
+    suggestionType: string;
+    effectivenessScore?: number;
+  };
 }
 
 /**

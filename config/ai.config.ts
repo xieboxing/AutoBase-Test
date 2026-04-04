@@ -17,6 +17,10 @@ export const aiConfigSchema = z.object({
   baseUrl: z.string().optional(),
   timeout: z.number().int().min(1000).max(60000).default(30000),
   retryCount: z.number().int().min(0).max(5).default(3),
+  // Embedding 配置（用于 RAG）
+  embeddingEnabled: z.boolean().default(true),
+  embeddingModel: z.string().default('text-embedding-3-small'),
+  embeddingDimension: z.number().int().min(128).max(4096).default(1536),
 });
 
 /**
@@ -36,6 +40,9 @@ export const defaultAiConfig: AiConfig = {
   baseUrl: undefined,
   timeout: 30000,
   retryCount: 3,
+  embeddingEnabled: true,
+  embeddingModel: 'text-embedding-3-small',
+  embeddingDimension: 1536,
 };
 
 /**
@@ -62,10 +69,34 @@ export const providerModels: Record<AiProvider, string[]> = {
 };
 
 /**
+ * 各提供商默认 Embedding 模型
+ */
+export const providerEmbeddingModels: Record<AiProvider, string[]> = {
+  anthropic: [], // Anthropic 不提供独立的 Embedding API
+  openai: [
+    'text-embedding-3-small',
+    'text-embedding-3-large',
+    'text-embedding-ada-002',
+  ],
+  local: [
+    'all-MiniLM-L6-v2',
+    'nomic-embed-text',
+  ],
+};
+
+/**
  * 获取提供商的默认模型
  */
 export function getDefaultModel(provider: AiProvider): string {
   return providerModels[provider]?.[0] ?? '';
+}
+
+/**
+ * 获取提供商的默认 Embedding 模型
+ */
+export function getDefaultEmbeddingModel(provider: AiProvider): string | null {
+  const models = providerEmbeddingModels[provider];
+  return models && models.length > 0 ? models[0] ?? null : null;
 }
 
 /**

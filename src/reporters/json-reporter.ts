@@ -100,18 +100,24 @@ export class JsonReporter {
     fileName: string;
     runId: string;
     project: string;
+    platform: string;
     startTime: string;
     passRate: number;
+    passed: number;
     totalCases: number;
+    riskLevel: string;
   }>> {
     const reports = await this.list();
     const summaries: Array<{
       fileName: string;
       runId: string;
       project: string;
+      platform: string;
       startTime: string;
       passRate: number;
+      passed: number;
       totalCases: number;
+      riskLevel: string;
     }> = [];
 
     for (const fileName of reports) {
@@ -123,9 +129,12 @@ export class JsonReporter {
           fileName,
           runId: result.runId,
           project: result.project,
+          platform: result.platform,
           startTime: result.startTime,
           passRate: result.summary.passRate,
+          passed: result.summary.passed,
           totalCases: result.summary.total,
+          riskLevel: result.aiAnalysis?.riskLevel || 'unknown',
         });
       }
     }

@@ -30,6 +30,7 @@ export type FailureAnalysisResult = z.infer<typeof failureAnalysisSchema>;
 export interface FailureContext {
   testCaseId: string;
   testCaseName: string;
+  projectId?: string;
   failedStep: {
     order: number;
     action: string;
@@ -58,6 +59,7 @@ export function buildAnalyzeFailurePrompt(params: {
   context: FailureContext;
   pageHtml?: string;
   interactiveElements?: Array<{ selector: string; text?: string; visible: boolean }>;
+  similarMemories?: string;
 }): string {
   const previousStepsSummary = params.context.previousSteps
     ?.map(s => `${s.order}. ${s.action} - ${s.status}`)
@@ -68,8 +70,12 @@ export function buildAnalyzeFailurePrompt(params: {
     .map(el => `- ${el.selector}: ${el.text || '(无文本)'} [${el.visible ? '可见' : '不可见'}]`)
     .join('\n') || '无元素信息';
 
-  return `你是一位资深的QA测试专家。请分析以下测试失败的原因。
+  const memorySection = params.similarMemories
+    ? `\n${params.similarMemories}\n**注意**: 请参考以上历史案例，如果有相似情况，可以复用之前的解决方案。\n`
+    : '';
 
+  return `你是一位资深的QA测试专家。请分析以下测试失败的原因。
+${memorySection}
 ## 测试用例信息
 - 用例ID: ${params.context.testCaseId}
 - 用例名称: ${params.context.testCaseName}
@@ -133,8 +139,14 @@ export function buildAnalyzeFailureWithScreenshotPrompt(params: {
   pageHtml?: string;
   interactiveElements?: Array<{ selector: string; text?: string; visible: boolean }>;
   screenshotBase64: string;
+  similarMemories?: string;
 }): Array<{ type: 'text' | 'image'; text?: string; source?: { type: 'base64'; media_type: string; data: string } }> {
-  const textPrompt = buildAnalyzeFailurePrompt(params);
+  const textPrompt = buildAnalyzeFailurePrompt({
+    context: params.context,
+    pageHtml: params.pageHtml,
+    interactiveElements: params.interactiveElements,
+    similarMemories: params.similarMemories,
+  });
 
   return [
     { type: 'text', text: textPrompt },

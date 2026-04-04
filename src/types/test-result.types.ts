@@ -1,4 +1,16 @@
 import type { TestStatus, Platform } from './test-case.types.js';
+import type { VisualRegressionTestResult } from './visual.types.js';
+
+/**
+ * RAG 记忆使用记录
+ */
+export interface RagMemoryUsage {
+  memoryId: string;
+  memoryType: string;
+  similarity: number;
+  summary: string;
+  wasHelpful?: boolean;
+}
 
 /**
  * 单个测试步骤结果
@@ -31,6 +43,16 @@ export interface TestCaseResult {
   selfHealed: boolean;
   selfHealSelector?: string;
   aiAnalysis?: string;
+  /** RAG 记忆使用记录（用于可解释性） */
+  ragMemoryUsed?: RagMemoryUsage[];
+  /** 失败模式匹配信息 */
+  matchedPattern?: {
+    patternId: string;
+    patternType: string;
+    autoFixApplied: boolean;
+  };
+  /** 视觉回归测试结果 */
+  visualRegression?: VisualRegressionTestResult;
   artifacts: {
     screenshots: string[];
     video?: string;
@@ -158,6 +180,64 @@ export interface TestRunResult {
     criticalIssues: string[];
     recommendations: string[];
     riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  };
+  /** 历史知识加载与策略 */
+  historicalContext?: {
+    loaded: boolean;
+    passedCasesCount: number;
+    failedCasesCount: number;
+    stableCasesCount: number;
+    highRiskCasesCount: number;
+    strategyApplied: string;
+  };
+  /** 智能调度结果 */
+  schedulingResult?: {
+    scheduledCount: number;
+    skippedCount: number;
+    highRiskCount: number;
+    strategy: string;
+    skippedCases: Array<{ caseId: string; caseName: string; reason: string }>;
+  };
+  /** 失败模式与自动修复 */
+  autoFixSummary?: {
+    totalAttempts: number;
+    successCount: number;
+    failureCount: number;
+    patternsMatched: Array<{ patternId: string; patternType: string; count: number }>;
+  };
+  /** RAG 记忆统计（可解释性） */
+  ragMemoryStats?: {
+    totalMemoriesUsed: number;
+    byType: Record<string, number>;
+    avgSimilarity: number;
+    topMemories: Array<{
+      memoryId: string;
+      memoryType: string;
+      summary: string;
+      usageCount: number;
+    }>;
+  };
+  /** 状态图谱摘要 */
+  stateGraphSummary?: {
+    totalStates: number;
+    newStatesDiscovered: number;
+    totalTransitions: number;
+    coveragePercent: number;
+  };
+  /** 业务流测试摘要 */
+  businessFlowSummary?: {
+    totalFlowsDetected: number;
+    flowsTested: number;
+    flowsPassed: number;
+    flowsFailed: number;
+  };
+  /** 并发执行统计 */
+  parallelExecutionStats?: {
+    enabled: boolean;
+    workerCount: number;
+    totalDurationMs: number;
+    serialEstimatedMs: number;
+    efficiencyPercent: number;
   };
   artifacts: {
     screenshots: string[];

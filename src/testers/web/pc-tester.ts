@@ -1,11 +1,13 @@
 import { chromium, firefox, webkit, type Browser, type BrowserContext, type Page, type BrowserType } from 'playwright';
 import type { TestCase, TestStep } from '@/types/test-case.types.js';
 import type { TestCaseResult, TestStepResult, TestEnvironment } from '@/types/test-result.types.js';
+import type { VisualRegressionConfig, VisualRegressionTestResult } from '@/types/visual.types.js';
 import { logger } from '@/core/logger.js';
 import { eventBus } from '@/core/event-bus.js';
 import { nanoid } from 'nanoid';
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import { VisualRegressionManager } from '@/testers/visual/visual-regression-manager.js';
 
 /**
  * 浏览器类型
@@ -26,6 +28,12 @@ export interface PcTesterConfig {
   videoOnFailure: boolean;
   artifactsDir: string;
   baseUrl?: string;
+  /** 视觉回归配置 */
+  visualRegression?: VisualRegressionConfig;
+  /** 是否启用视觉回归 */
+  enableVisualRegression?: boolean;
+  /** 项目 ID（用于视觉回归） */
+  projectId?: string;
 }
 
 /**
@@ -41,6 +49,7 @@ const DEFAULT_PC_TESTER_CONFIG: PcTesterConfig = {
   screenshotOnFailure: true,
   videoOnFailure: true,
   artifactsDir: './data/screenshots',
+  enableVisualRegression: false,
 };
 
 /**
@@ -51,6 +60,7 @@ export class PcTester {
   protected browser: Browser | null = null;
   protected context: BrowserContext | null = null;
   protected page: Page | null = null;
+  protected visualRegressionManager: VisualRegressionManager | null = null;
 
   constructor(config: Partial<PcTesterConfig> = {}) {
     this.config = { ...DEFAULT_PC_TESTER_CONFIG, ...config };
@@ -194,6 +204,16 @@ export class PcTester {
 
     logger.info(`📊 测试结果: ${status}`, { caseId: testCase.id, duration: endTime.getTime() - startTime.getTime() });
 
+    // 视觉回归测试
+    let visualRegressionResult;
+    if (this.config.enableVisualRegression && this.config.projectId) {
+      visualRegressionResult = await this.runVisualRegression({
+        caseId: testCase.id,
+        runId,
+        pageUrl: this.page?.url() || '',
+      });
+    }
+
     return {
       caseId: testCase.id,
       caseName: testCase.name,
@@ -206,12 +226,92 @@ export class PcTester {
       steps: stepResults,
       retryCount,
       selfHealed: false,
+      visualRegression: visualRegressionResult,
       artifacts: {
         screenshots,
         video: videoPath,
         logs,
       },
     };
+  }
+
+  /**
+   * 执行视觉回归测试
+   */
+  protected async runVisualRegression(options: {
+    caseId: string;
+    runId: string;
+    pageUrl: string;
+  }): Promise<VisualRegressionTestResult | undefined> {
+    if (!this.page || !this.config.projectId) {
+      return undefined;
+    }
+
+    try {
+      // 初始化视觉回归管理器
+      if (!this.visualRegressionManager) {
+        this.visualRegressionManager = new VisualRegressionManager(
+          this.config.visualRegression
+        );
+        await this.visualRegressionManager.initialize();
+      }
+
+      // 获取当前页面截图
+      const screenshot = await this.page.screenshot({ fullPage: true });
+      const screenshotPath = path.join(
+        this.config.artifactsDir,
+        `${options.caseId}_${options.runId}_visual.png`
+      );
+      await fs.writeFile(screenshotPath, screenshot);
+
+      // 执行对比
+      const diffResult = await this.visualRegressionManager.compare(screenshotPath, {
+        projectId: this.config.projectId,
+        platform: 'pc-web',
+        pageUrl: options.pageUrl,
+        caseId: options.caseId,
+        runId: options.runId,
+        viewport: this.config.viewport,
+        browser: this.config.browser,
+      });
+
+      if (!diffResult) {
+        // 新基线创建
+        return {
+          caseId: options.caseId,
+          pageUrl: options.pageUrl,
+          hasBaseline: false,
+          baselineId: null,
+          diffResult: null,
+          status: 'new-baseline',
+          message: '自动创建新基线',
+        };
+      }
+
+      return {
+        caseId: options.caseId,
+        pageUrl: options.pageUrl,
+        hasBaseline: true,
+        baselineId: diffResult.baselineId,
+        diffResult,
+        status: diffResult.passed ? 'passed' : 'failed',
+        message: diffResult.passed
+          ? `视觉回归测试通过，差异: ${diffResult.diffPercentage.toFixed(2)}%`
+          : `视觉回归测试失败，差异: ${diffResult.diffPercentage.toFixed(2)}%`,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.warn(`⚠️ 视觉回归测试失败: ${errorMessage}`);
+      return {
+        caseId: options.caseId,
+        pageUrl: options.pageUrl,
+        hasBaseline: false,
+        baselineId: null,
+        diffResult: null,
+        status: 'error',
+        message: errorMessage,
+      };
+    }
   }
 
   /**

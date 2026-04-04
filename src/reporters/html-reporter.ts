@@ -75,8 +75,16 @@ export class HtmlReporter {
   <div class="container">
     ${this.buildHeader(result)}
     ${this.buildOverview(result)}
+    ${this.buildHistoricalContext(result)}
+    ${this.buildSchedulingResult(result)}
     ${this.buildAiAnalysis(result)}
+    ${this.buildAutoFixSummary(result)}
+    ${this.buildRagMemoryStats(result)}
+    ${this.buildStateGraphSummary(result)}
+    ${this.buildBusinessFlowSummary(result)}
+    ${this.buildParallelExecutionStats(result)}
     ${this.buildCategories(result)}
+    ${this.buildVisualRegression(result)}
     ${this.buildFailedCases(result)}
     ${this.buildEnvironment(result)}
   </div>
@@ -137,6 +145,274 @@ export class HtmlReporter {
       </div>
       <div class="chart-container">
         <canvas id="overviewChart"></canvas>
+      </div>
+    </section>`;
+  }
+
+  /**
+   * 构建历史知识上下文
+   */
+  private buildHistoricalContext(result: TestRunResult): string {
+    if (!result.historicalContext?.loaded) return '';
+
+    const ctx = result.historicalContext;
+    return `
+    <section class="section historical-context">
+      <h2>📚 历史知识加载</h2>
+      <div class="info-card">
+        <p><strong>策略应用:</strong> ${ctx.strategyApplied}</p>
+      </div>
+      <div class="stats-grid small">
+        <div class="stat-card">
+          <div class="stat-value">✅ ${ctx.passedCasesCount}</div>
+          <div class="stat-label">历史通过用例</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">❌ ${ctx.failedCasesCount}</div>
+          <div class="stat-label">历史失败用例</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">🛡️ ${ctx.stableCasesCount}</div>
+          <div class="stat-label">稳定用例</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">⚠️ ${ctx.highRiskCasesCount}</div>
+          <div class="stat-label">高风险用例</div>
+        </div>
+      </div>
+    </section>`;
+  }
+
+  /**
+   * 构建调度结果
+   */
+  private buildSchedulingResult(result: TestRunResult): string {
+    if (!result.schedulingResult) return '';
+
+    const sched = result.schedulingResult;
+    let html = `
+    <section class="section scheduling-result">
+      <h2>🎯 智能调度结果</h2>
+      <div class="info-card">
+        <p><strong>调度策略:</strong> ${sched.strategy}</p>
+      </div>
+      <div class="stats-grid small">
+        <div class="stat-card">
+          <div class="stat-value">📋 ${sched.scheduledCount}</div>
+          <div class="stat-label">调度用例</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">⏭️ ${sched.skippedCount}</div>
+          <div class="stat-label">跳过用例</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">⚠️ ${sched.highRiskCount}</div>
+          <div class="stat-label">高风险用例</div>
+        </div>
+      </div>`;
+
+    if (sched.skippedCases.length > 0) {
+      html += `
+      <details class="skip-details">
+        <summary>跳过用例详情 (${sched.skippedCases.length})</summary>
+        <ul class="skip-list">
+          ${sched.skippedCases.map(c => `
+            <li><strong>${c.caseName}</strong>: ${c.reason}</li>
+          `).join('')}
+        </ul>
+      </details>`;
+    }
+
+    html += `</section>`;
+    return html;
+  }
+
+  /**
+   * 构建自动修复摘要
+   */
+  private buildAutoFixSummary(result: TestRunResult): string {
+    if (!result.autoFixSummary || result.autoFixSummary.totalAttempts === 0) return '';
+
+    const fix = result.autoFixSummary;
+    const successRate = fix.totalAttempts > 0
+      ? ((fix.successCount / fix.totalAttempts) * 100).toFixed(1)
+      : '0';
+
+    return `
+    <section class="section auto-fix-summary">
+      <h2>🔧 自动修复摘要</h2>
+      <div class="stats-grid small">
+        <div class="stat-card">
+          <div class="stat-value">🔄 ${fix.totalAttempts}</div>
+          <div class="stat-label">修复尝试</div>
+        </div>
+        <div class="stat-card passed">
+          <div class="stat-value">✅ ${fix.successCount}</div>
+          <div class="stat-label">修复成功</div>
+        </div>
+        <div class="stat-card failed">
+          <div class="stat-value">❌ ${fix.failureCount}</div>
+          <div class="stat-label">修复失败</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">📊 ${successRate}%</div>
+          <div class="stat-label">成功率</div>
+        </div>
+      </div>
+      ${fix.patternsMatched.length > 0 ? `
+        <div class="patterns-list">
+          <h4>命中的失败模式</h4>
+          <ul>
+            ${fix.patternsMatched.map(p => `
+              <li><strong>${p.patternType}</strong>: ${p.count} 次</li>
+            `).join('')}
+          </ul>
+        </div>
+      ` : ''}
+    </section>`;
+  }
+
+  /**
+   * 构建 RAG 记忆统计
+   */
+  private buildRagMemoryStats(result: TestRunResult): string {
+    if (!result.ragMemoryStats || result.ragMemoryStats.totalMemoriesUsed === 0) return '';
+
+    const rag = result.ragMemoryStats;
+    return `
+    <section class="section rag-memory-stats">
+      <h2>🧠 RAG 记忆使用</h2>
+      <div class="stats-grid small">
+        <div class="stat-card">
+          <div class="stat-value">📝 ${rag.totalMemoriesUsed}</div>
+          <div class="stat-label">使用记忆数</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">🎯 ${(rag.avgSimilarity * 100).toFixed(1)}%</div>
+          <div class="stat-label">平均相似度</div>
+        </div>
+      </div>
+      ${Object.keys(rag.byType).length > 0 ? `
+        <div class="memory-by-type">
+          <h4>按类型统计</h4>
+          <div class="type-tags">
+            ${Object.entries(rag.byType).map(([type, count]) => `
+              <span class="type-tag">${type}: ${count}</span>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+      ${rag.topMemories.length > 0 ? `
+        <details class="top-memories">
+          <summary>Top 记忆</summary>
+          <ul>
+            ${rag.topMemories.map(m => `
+              <li><strong>[${m.memoryType}]</strong> ${m.summary} (${m.usageCount} 次使用)</li>
+            `).join('')}
+          </ul>
+        </details>
+      ` : ''}
+    </section>`;
+  }
+
+  /**
+   * 构建状态图谱摘要
+   */
+  private buildStateGraphSummary(result: TestRunResult): string {
+    if (!result.stateGraphSummary) return '';
+
+    const sg = result.stateGraphSummary;
+    return `
+    <section class="section state-graph-summary">
+      <h2>🗺️ 状态图谱</h2>
+      <div class="stats-grid small">
+        <div class="stat-card">
+          <div class="stat-value">📍 ${sg.totalStates}</div>
+          <div class="stat-label">总状态数</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">🆕 ${sg.newStatesDiscovered}</div>
+          <div class="stat-label">新发现状态</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">🔗 ${sg.totalTransitions}</div>
+          <div class="stat-label">转移边数</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">📊 ${sg.coveragePercent.toFixed(1)}%</div>
+          <div class="stat-label">覆盖率</div>
+        </div>
+      </div>
+    </section>`;
+  }
+
+  /**
+   * 构建业务流摘要
+   */
+  private buildBusinessFlowSummary(result: TestRunResult): string {
+    if (!result.businessFlowSummary || result.businessFlowSummary.totalFlowsDetected === 0) return '';
+
+    const bf = result.businessFlowSummary;
+    const passRate = bf.flowsTested > 0
+      ? ((bf.flowsPassed / bf.flowsTested) * 100).toFixed(1)
+      : '0';
+
+    return `
+    <section class="section business-flow-summary">
+      <h2>🔄 业务流测试</h2>
+      <div class="stats-grid small">
+        <div class="stat-card">
+          <div class="stat-value">🔍 ${bf.totalFlowsDetected}</div>
+          <div class="stat-label">识别业务流</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">▶️ ${bf.flowsTested}</div>
+          <div class="stat-label">执行业务流</div>
+        </div>
+        <div class="stat-card passed">
+          <div class="stat-value">✅ ${bf.flowsPassed}</div>
+          <div class="stat-label">通过</div>
+        </div>
+        <div class="stat-card failed">
+          <div class="stat-value">❌ ${bf.flowsFailed}</div>
+          <div class="stat-label">失败</div>
+        </div>
+      </div>
+      <div class="info-card">
+        <p><strong>业务流通过率:</strong> ${passRate}%</p>
+      </div>
+    </section>`;
+  }
+
+  /**
+   * 构建并发执行统计
+   */
+  private buildParallelExecutionStats(result: TestRunResult): string {
+    if (!result.parallelExecutionStats) return '';
+
+    const pe = result.parallelExecutionStats;
+    if (!pe.enabled) return '';
+
+    return `
+    <section class="section parallel-execution-stats">
+      <h2>⚡ 并发执行统计</h2>
+      <div class="stats-grid small">
+        <div class="stat-card">
+          <div class="stat-value">👷 ${pe.workerCount}</div>
+          <div class="stat-label">Worker 数量</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">⏱️ ${this.formatDuration(pe.totalDurationMs)}</div>
+          <div class="stat-label">实际耗时</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">🕐 ${this.formatDuration(pe.serialEstimatedMs)}</div>
+          <div class="stat-label">预估串行耗时</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">📈 ${pe.efficiencyPercent.toFixed(1)}%</div>
+          <div class="stat-label">效率提升</div>
+        </div>
       </div>
     </section>`;
   }
@@ -223,6 +499,93 @@ export class HtmlReporter {
       </div>
       <div class="chart-container">
         <canvas id="categoryChart"></canvas>
+      </div>
+    </section>`;
+  }
+
+  /**
+   * 构建视觉回归结果
+   */
+  private buildVisualRegression(result: TestRunResult): string {
+    // 过滤有视觉回归结果的用例
+    const visualCases = result.cases.filter(c => c.visualRegression);
+    if (visualCases.length === 0) return '';
+
+    const passedCount = visualCases.filter(c => c.visualRegression?.status === 'passed').length;
+    const failedCount = visualCases.filter(c => c.visualRegression?.status === 'failed').length;
+    const newBaselineCount = visualCases.filter(c => c.visualRegression?.status === 'new-baseline').length;
+    const errorCount = visualCases.filter(c => c.visualRegression?.status === 'error').length;
+
+    return `
+    <section class="section visual-regression">
+      <h2>👁️ 视觉回归测试</h2>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value">${visualCases.length}</div>
+          <div class="stat-label">总对比数</div>
+        </div>
+        <div class="stat-card passed">
+          <div class="stat-value">✅ ${passedCount}</div>
+          <div class="stat-label">通过</div>
+        </div>
+        <div class="stat-card failed">
+          <div class="stat-value">❌ ${failedCount}</div>
+          <div class="stat-label">失败</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">📸 ${newBaselineCount}</div>
+          <div class="stat-label">新基线</div>
+        </div>
+      </div>
+      <div class="visual-case-list">
+        ${visualCases.map(tc => {
+          const vr = tc.visualRegression!;
+          const statusIcon = vr.status === 'passed' ? '✅' :
+                            vr.status === 'failed' ? '❌' :
+                            vr.status === 'new-baseline' ? '📸' : '⚠️';
+          const statusClass = vr.status === 'passed' ? 'status-passed' :
+                             vr.status === 'failed' ? 'status-failed' :
+                             vr.status === 'new-baseline' ? 'status-new' : 'status-error';
+
+          return `
+            <details class="visual-case-item ${statusClass}">
+              <summary class="visual-case-summary">
+                <span class="status-icon">${statusIcon}</span>
+                <span class="case-name">${tc.caseName}</span>
+                <span class="diff-percent">${vr.diffResult ? `${vr.diffResult.diffPercentage.toFixed(2)}%` : '-'}</span>
+              </summary>
+              <div class="visual-case-details">
+                <div class="visual-info">
+                  <p><strong>页面 URL:</strong> ${vr.pageUrl}</p>
+                  <p><strong>状态:</strong> ${vr.status}</p>
+                  <p><strong>消息:</strong> ${vr.message}</p>
+                  ${vr.baselineId ? `<p><strong>基线 ID:</strong> ${vr.baselineId}</p>` : ''}
+                </div>
+                ${vr.diffResult ? `
+                  <div class="diff-images">
+                    <div class="image-comparison">
+                      <div class="image-item">
+                        <h4>基线图</h4>
+                        <img src="${vr.diffResult.currentImagePath}" alt="基线图" class="screenshot">
+                      </div>
+                      ${vr.diffResult.diffImagePath ? `
+                        <div class="image-item">
+                          <h4>差异图</h4>
+                          <img src="${vr.diffResult.diffImagePath}" alt="差异图" class="screenshot diff-image">
+                        </div>
+                      ` : ''}
+                    </div>
+                    <div class="diff-stats">
+                      <p><strong>差异像素:</strong> ${vr.diffResult.diffPixels.toLocaleString()}</p>
+                      <p><strong>差异百分比:</strong> ${vr.diffResult.diffPercentage.toFixed(2)}%</p>
+                      <p><strong>差异区域数:</strong> ${vr.diffResult.diffAreas.length}</p>
+                    </div>
+                  </div>
+                ` : ''}
+              </div>
+            </details>
+          `;
+        }).join('')}
       </div>
     </section>`;
   }
@@ -362,7 +725,46 @@ export class HtmlReporter {
       .env-label { font-size: 0.75rem; color: #71717a; display: block; }
       .env-value { font-weight: bold; }
       .footer { text-align: center; color: #71717a; font-size: 0.875rem; margin-top: 1rem; }
-      @media (max-width: 768px) { .container { padding: 1rem; } .stats-grid { grid-template-columns: repeat(2, 1fr); } }
+      .visual-regression .visual-case-list { display: flex; flex-direction: column; gap: 0.5rem; }
+      .visual-case-item { background: rgba(255,255,255,0.05); border-radius: 0.5rem; overflow: hidden; }
+      .visual-case-item.status-passed { border-left: 4px solid #22c55e; }
+      .visual-case-item.status-failed { border-left: 4px solid #ef4444; }
+      .visual-case-item.status-new { border-left: 4px solid #3b82f6; }
+      .visual-case-item.status-error { border-left: 4px solid #eab308; }
+      .visual-case-summary { display: flex; align-items: center; gap: 0.5rem; padding: 1rem; cursor: pointer; font-weight: bold; }
+      .visual-case-summary:hover { background: rgba(255,255,255,0.1); }
+      .visual-case-summary .status-icon { font-size: 1.25rem; }
+      .visual-case-summary .case-name { flex: 1; }
+      .visual-case-summary .diff-percent { color: #a1a1aa; font-size: 0.875rem; }
+      .visual-case-details { padding: 0 1rem 1rem; }
+      .visual-info p { margin-bottom: 0.25rem; font-size: 0.875rem; }
+      .diff-images { margin-top: 1rem; }
+      .image-comparison { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
+      .image-item h4 { font-size: 0.875rem; color: #a1a1aa; margin-bottom: 0.5rem; }
+      .diff-image { border: 2px solid #ef4444; }
+      .diff-stats { margin-top: 1rem; padding: 0.5rem; background: rgba(255,255,255,0.05); border-radius: 0.25rem; }
+      .diff-stats p { font-size: 0.875rem; margin-bottom: 0.25rem; }
+      .stats-grid.small { grid-template-columns: repeat(4, 1fr); }
+      .stats-grid.small .stat-card { padding: 0.75rem; }
+      .stats-grid.small .stat-value { font-size: 1.25rem; }
+      .stats-grid.small .stat-label { font-size: 0.75rem; }
+      .info-card { background: rgba(255,255,255,0.05); padding: 0.75rem; border-radius: 0.5rem; margin-bottom: 1rem; }
+      .info-card p { margin-bottom: 0.25rem; font-size: 0.875rem; }
+      .skip-details { margin-top: 1rem; }
+      .skip-details summary { cursor: pointer; color: #a1a1aa; font-size: 0.875rem; }
+      .skip-list { padding-left: 1.5rem; margin-top: 0.5rem; font-size: 0.875rem; }
+      .skip-list li { margin-bottom: 0.25rem; }
+      .patterns-list { margin-top: 1rem; }
+      .patterns-list h4 { font-size: 0.875rem; margin-bottom: 0.5rem; color: #a1a1aa; }
+      .patterns-list ul { padding-left: 1.5rem; font-size: 0.875rem; }
+      .memory-by-type { margin-top: 1rem; }
+      .memory-by-type h4 { font-size: 0.875rem; margin-bottom: 0.5rem; color: #a1a1aa; }
+      .type-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+      .type-tag { background: rgba(59,130,246,0.2); padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.75rem; }
+      .top-memories { margin-top: 1rem; }
+      .top-memories summary { cursor: pointer; color: #a1a1aa; font-size: 0.875rem; }
+      .top-memories ul { padding-left: 1.5rem; margin-top: 0.5rem; font-size: 0.875rem; }
+      @media (max-width: 768px) { .container { padding: 1rem; } .stats-grid { grid-template-columns: repeat(2, 1fr); } .stats-grid.small { grid-template-columns: repeat(2, 1fr); } }
     `;
   }
 

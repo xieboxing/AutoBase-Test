@@ -88,9 +88,9 @@ async function executeOptimize(options: { project?: string; autoApply?: boolean 
       failCount: number;
       skipCount: number;
       avgDurationMs: number;
-      lastResult: string;
-      recentResults: string[];
-      priority: string;
+      lastResult: 'passed' | 'failed' | 'skipped';
+      recentResults: Array<'passed' | 'failed' | 'skipped'>;
+      priority: 'P0' | 'P1' | 'P2' | 'P3';
       type: string;
       tags: string[];
     }> = [];
@@ -100,14 +100,22 @@ async function executeOptimize(options: { project?: string; autoApply?: boolean 
       const results = testHistory.getRunResults(run.id);
       for (const result of results) {
         const existing = caseHistoryData.find(d => d.caseId === result.caseId);
+        const validStatus = (status: string): 'passed' | 'failed' | 'skipped' => {
+          if (status === 'passed' || status === 'failed' || status === 'skipped') return status;
+          return 'failed';
+        };
+        const validPriority = (priority: string): 'P0' | 'P1' | 'P2' | 'P3' => {
+          if (['P0', 'P1', 'P2', 'P3'].includes(priority)) return priority as 'P0' | 'P1' | 'P2' | 'P3';
+          return 'P2';
+        };
         if (existing) {
           existing.totalRuns++;
           if (result.status === 'passed') existing.passCount++;
           else if (result.status === 'failed') existing.failCount++;
           else existing.skipCount++;
           existing.avgDurationMs = (existing.avgDurationMs + result.durationMs) / 2;
-          existing.lastResult = result.status;
-          existing.recentResults.push(result.status);
+          existing.lastResult = validStatus(result.status);
+          existing.recentResults.push(validStatus(result.status));
         } else {
           caseHistoryData.push({
             caseId: result.caseId,
@@ -117,8 +125,8 @@ async function executeOptimize(options: { project?: string; autoApply?: boolean 
             failCount: result.status === 'failed' ? 1 : 0,
             skipCount: result.status === 'skipped' ? 1 : 0,
             avgDurationMs: result.durationMs,
-            lastResult: result.status,
-            recentResults: [result.status],
+            lastResult: validStatus(result.status),
+            recentResults: [validStatus(result.status)],
             priority: 'P2',
             type: 'functional',
             tags: [],
@@ -171,6 +179,7 @@ async function executeOptimize(options: { project?: string; autoApply?: boolean 
       console.log(`\n${chalk.bold('优化建议详情')} (共 ${analysis.suggestions.length} 条):`);
       for (let i = 0; i < Math.min(analysis.suggestions.length, 10); i++) {
         const suggestion = analysis.suggestions[i];
+        if (!suggestion) continue;
         const impactColor = suggestion.impact === 'high' ? chalk.red :
                            suggestion.impact === 'medium' ? chalk.yellow : chalk.gray;
         console.log(`\n  ${chalk.bold(`${i + 1}. ${suggestion.caseName || suggestion.type}`)}`);

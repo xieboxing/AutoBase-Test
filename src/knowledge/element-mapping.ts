@@ -1,4 +1,4 @@
-import { getDatabase, type KnowledgeDatabase } from './db/index.js';
+import { getDatabase, type KnowledgeDatabase, type TestPlatform } from './db/index.js';
 import { logger } from '@/core/logger.js';
 import { nanoid } from 'nanoid';
 
@@ -8,6 +8,7 @@ import { nanoid } from 'nanoid';
 export interface ElementMapping {
   id: string;
   project: string;
+  platform: TestPlatform;
   pageUrl: string;
   elementName: string | null;
   originalSelector: string;
@@ -27,6 +28,7 @@ export interface ElementMapping {
  */
 export interface ElementMappingQueryOptions {
   project?: string;
+  platform?: TestPlatform;
   pageUrl?: string;
   selector?: string;
 }
@@ -49,12 +51,13 @@ export class ElementMappingManager {
     project: string,
     pageUrl: string,
     selector: string,
-    elementName?: string
+    elementName?: string,
+    platform: TestPlatform = 'pc-web'
   ): ElementMapping {
     const now = new Date().toISOString();
 
     // 查找现有映射
-    const existing = this.findBySelector(project, selector);
+    const existing = this.findBySelector(project, selector, platform);
 
     if (existing) {
       // 更新成功计数
@@ -81,6 +84,7 @@ export class ElementMappingManager {
     const mapping: ElementMapping = {
       id,
       project,
+      platform,
       pageUrl,
       elementName: elementName ?? null,
       originalSelector: selector,
@@ -97,13 +101,14 @@ export class ElementMappingManager {
 
     this.db.execute(`
       INSERT INTO element_mappings (
-        id, project, page_url, element_name, original_selector,
+        id, project, platform, page_url, element_name, original_selector,
         alternative_selectors, last_working_selector, success_count,
         failure_count, last_success, last_failure, ai_suggested, created, updated
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       mapping.id,
       mapping.project,
+      mapping.platform,
       mapping.pageUrl,
       mapping.elementName,
       mapping.originalSelector,
@@ -124,9 +129,9 @@ export class ElementMappingManager {
   /**
    * 记录失败的定位
    */
-  recordFailure(project: string, selector: string): void {
+  recordFailure(project: string, selector: string, platform: TestPlatform = 'pc-web'): void {
     const now = new Date().toISOString();
-    const existing = this.findBySelector(project, selector);
+    const existing = this.findBySelector(project, selector, platform);
 
     if (existing) {
       this.db.execute(`
@@ -146,9 +151,10 @@ export class ElementMappingManager {
     project: string,
     originalSelector: string,
     alternativeSelector: string,
-    aiSuggested: boolean = false
+    aiSuggested: boolean = false,
+    platform: TestPlatform = 'pc-web'
   ): void {
-    const existing = this.findBySelector(project, originalSelector);
+    const existing = this.findBySelector(project, originalSelector, platform);
     if (!existing) return;
 
     const alternatives = existing.alternativeSelectors.filter(s => s !== alternativeSelector);
@@ -168,7 +174,7 @@ export class ElementMappingManager {
   /**
    * 更新最后工作的选择器
    */
-  updateWorkingSelector(project: string, originalSelector: string, workingSelector: string): void {
+  updateWorkingSelector(project: string, originalSelector: string, workingSelector: string, platform: TestPlatform = 'pc-web'): void {
     const now = new Date().toISOString();
 
     this.db.execute(`
@@ -177,8 +183,8 @@ export class ElementMappingManager {
         success_count = success_count + 1,
         last_success = ?,
         updated = ?
-      WHERE project = ? AND original_selector = ?
-    `, [workingSelector, now, now, project, originalSelector]);
+      WHERE project = ? AND original_selector = ? AND platform = ?
+    `, [workingSelector, now, now, project, originalSelector, platform]);
 
     logger.step('✅ 更新工作选择器', { original: originalSelector, working: workingSelector });
   }
@@ -186,10 +192,19 @@ export class ElementMappingManager {
   /**
    * 根据选择器查找映射
    */
-  findBySelector(project: string, selector: string): ElementMapping | null {
+  findBySelector(project: string, selector: string, platform?: TestPlatform): ElementMapping | null {
+    let sql = 'SELECT * FROM element_mappings WHERE project = ? AND original_selector = ?';
+    const params: unknown[] = [project, selector];
+
+    if (platform) {
+      sql += ' AND platform = ?';
+      params.push(platform);
+    }
+
     const row = this.db.queryOne<{
       id: string;
       project: string;
+      platform: string;
       page_url: string;
       element_name: string | null;
       original_selector: string;
@@ -202,10 +217,7 @@ export class ElementMappingManager {
       ai_suggested: number;
       created: string;
       updated: string;
-    }>(
-      'SELECT * FROM element_mappings WHERE project = ? AND original_selector = ?',
-      [project, selector]
-    );
+    }>(sql, params);
 
     if (!row) return null;
 
@@ -215,10 +227,19 @@ export class ElementMappingManager {
   /**
    * 根据 URL 查找所有映射
    */
-  findByPageUrl(project: string, pageUrl: string): ElementMapping[] {
+  findByPageUrl(project: string, pageUrl: string, platform?: TestPlatform): ElementMapping[] {
+    let sql = 'SELECT * FROM element_mappings WHERE project = ? AND page_url = ?';
+    const params: unknown[] = [project, pageUrl];
+
+    if (platform) {
+      sql += ' AND platform = ?';
+      params.push(platform);
+    }
+
     const rows = this.db.query<{
       id: string;
       project: string;
+      platform: string;
       page_url: string;
       element_name: string | null;
       original_selector: string;
@@ -231,10 +252,7 @@ export class ElementMappingManager {
       ai_suggested: number;
       created: string;
       updated: string;
-    }>(
-      'SELECT * FROM element_mappings WHERE project = ? AND page_url = ?',
-      [project, pageUrl]
-    );
+    }>(sql, params);
 
     return rows.map(row => this.rowToMapping(row));
   }
@@ -242,10 +260,24 @@ export class ElementMappingManager {
   /**
    * 获取需要修复的映射（高失败率）
    */
-  getProblematicMappings(project: string, threshold: number = 0.5): ElementMapping[] {
+  getProblematicMappings(project: string, threshold: number = 0.5, platform?: TestPlatform): ElementMapping[] {
+    let sql = `
+      SELECT * FROM element_mappings
+      WHERE project = ? AND (failure_count * 1.0 / (success_count + failure_count)) > ?
+    `;
+    const params: unknown[] = [project, threshold];
+
+    if (platform) {
+      sql += ' AND platform = ?';
+      params.push(platform);
+    }
+
+    sql += ' ORDER BY failure_count DESC';
+
     const rows = this.db.query<{
       id: string;
       project: string;
+      platform: string;
       page_url: string;
       element_name: string | null;
       original_selector: string;
@@ -258,11 +290,7 @@ export class ElementMappingManager {
       ai_suggested: number;
       created: string;
       updated: string;
-    }>(`
-      SELECT * FROM element_mappings
-      WHERE project = ? AND (failure_count * 1.0 / (success_count + failure_count)) > ?
-      ORDER BY failure_count DESC
-    `, [project, threshold]);
+    }>(sql, params);
 
     return rows.map(row => this.rowToMapping(row));
   }
@@ -270,8 +298,8 @@ export class ElementMappingManager {
   /**
    * 获取所有备选选择器
    */
-  getAlternativeSelectors(project: string, originalSelector: string): string[] {
-    const mapping = this.findBySelector(project, originalSelector);
+  getAlternativeSelectors(project: string, originalSelector: string, platform: TestPlatform = 'pc-web'): string[] {
+    const mapping = this.findBySelector(project, originalSelector, platform);
     if (!mapping) return [];
 
     // 返回备选选择器列表，优先使用最后工作的选择器
@@ -302,6 +330,11 @@ export class ElementMappingManager {
       params.push(options.project);
     }
 
+    if (options.platform) {
+      conditions.push('platform = ?');
+      params.push(options.platform);
+    }
+
     if (options.pageUrl) {
       conditions.push('page_url LIKE ?');
       params.push(`%${options.pageUrl}%`);
@@ -317,6 +350,7 @@ export class ElementMappingManager {
     const rows = this.db.query<{
       id: string;
       project: string;
+      platform: string;
       page_url: string;
       element_name: string | null;
       original_selector: string;
@@ -395,6 +429,7 @@ export class ElementMappingManager {
   private rowToMapping(row: {
     id: string;
     project: string;
+    platform: string;
     page_url: string;
     element_name: string | null;
     original_selector: string;
@@ -418,6 +453,7 @@ export class ElementMappingManager {
     return {
       id: row.id,
       project: row.project,
+      platform: row.platform as TestPlatform,
       pageUrl: row.page_url,
       elementName: row.element_name,
       originalSelector: row.original_selector,

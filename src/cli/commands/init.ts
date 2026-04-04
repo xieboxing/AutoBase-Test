@@ -229,25 +229,28 @@ function buildConfig(answers: Record<string, unknown>): Record<string, unknown> 
 
   // Web 目标
   if ((answers.testTargets as string[]).includes('web') && answers.webUrl) {
+    const targets = config.targets as Record<string, unknown> | undefined;
+    const webConfig: Record<string, unknown> = {
+      url: answers.webUrl,
+    };
+    if (answers.needLogin) {
+      webConfig.loginUrl = answers.loginUrl;
+      webConfig.credentials = {
+        username: answers.loginUsername,
+        password: 'env:TEST_PASSWORD',
+      };
+    }
     config.targets = {
-      ...config.targets as object,
-      web: {
-        url: answers.webUrl,
-        ...(answers.needLogin && {
-          loginUrl: answers.loginUrl,
-          credentials: {
-            username: answers.loginUsername,
-            password: 'env:TEST_PASSWORD',
-          },
-        }),
-      },
+      ...(targets ?? {}),
+      web: webConfig,
     };
   }
 
   // H5 目标
   if ((answers.testTargets as string[]).includes('h5') && answers.h5Url) {
+    const targets = config.targets as Record<string, unknown> | undefined;
     config.targets = {
-      ...config.targets as object,
+      ...(targets ?? {}),
       h5: {
         url: answers.h5Url,
         devices: ['iPhone 15', 'Pixel 7'],
@@ -257,8 +260,9 @@ function buildConfig(answers: Record<string, unknown>): Record<string, unknown> 
 
   // APP 目标
   if ((answers.testTargets as string[]).includes('app')) {
+    const targets = config.targets as Record<string, unknown> | undefined;
     config.targets = {
-      ...config.targets as object,
+      ...(targets ?? {}),
       app: {
         apkPath: answers.apkPath,
         packageName: answers.packageName,
@@ -268,8 +272,9 @@ function buildConfig(answers: Record<string, unknown>): Record<string, unknown> 
 
   // API 目标
   if ((answers.testTargets as string[]).includes('api') && answers.apiBaseUrl) {
+    const targets = config.targets as Record<string, unknown> | undefined;
     config.targets = {
-      ...config.targets as object,
+      ...(targets ?? {}),
       api: {
         baseUrl: answers.apiBaseUrl,
       },

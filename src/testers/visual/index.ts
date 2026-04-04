@@ -17,6 +17,12 @@ export {
   type BaselineManagerConfig,
 } from './baseline-manager.js';
 
+// 视觉回归管理器（统一）
+export {
+  VisualRegressionManager,
+  createVisualRegressionManager,
+} from './visual-regression-manager.js';
+
 // 布局检查测试器
 export {
   LayoutTester,

@@ -30,6 +30,8 @@ import type { TestActionType } from '@/types/test-case.types.js';
 import { nanoid } from 'nanoid';
 import { chromium, type Browser } from 'playwright';
 import fs from 'node:fs/promises';
+import os from 'node:os';
+import crypto from 'node:crypto';
 
 /**
  * 测试编排器配置（从 CLI 传入）
@@ -142,7 +144,6 @@ export class Orchestrator extends EventEmitter {
     let parallelism = 1;
     if (options.parallelism === 'auto') {
       // 自动检测 CPU 核心数
-      const os = require('node:os');
       parallelism = Math.max(1, os.cpus().length - 1); // 保留一个核心给系统
     } else if (typeof options.parallelism === 'number') {
       parallelism = Math.max(1, options.parallelism);
@@ -419,6 +420,10 @@ export class Orchestrator extends EventEmitter {
     }
 
     try {
+      // === P0 新增：验证已应用优化的效果 ===
+      testLogger.step('📊 验证已应用优化的效果');
+      await this.verifyAppliedOptimizations(testLogger);
+
       // 准备历史数据
       const historyData = this.results.map(r => ({
         caseId: r.caseId,
@@ -444,9 +449,14 @@ export class Orchestrator extends EventEmitter {
         avgDuration: this.results.reduce((sum, r) => sum + r.durationMs, 0) / this.results.length,
       });
 
-      // 保存高置信度的优化建议
+      // 保存高置信度的优化建议（带运行前状态）
       for (const suggestion of optimizationResult.suggestions) {
         if (suggestion.confidence >= 0.85 && suggestion.autoApplicable) {
+          // 查找该用例的当前状态作为基准
+          const caseResult = this.results.find(r => r.caseId === suggestion.caseId);
+          const beforePassRate = caseResult ? (caseResult.status === 'passed' ? 1 : 0) : null;
+          const beforeAvgDurationMs = caseResult?.durationMs ?? null;
+
           const suggestionId = this.repository.saveOptimizationSuggestion({
             project: this.projectName,
             platform: this.platform === 'h5' ? 'h5-web' : 'pc-web',
@@ -456,6 +466,10 @@ export class Orchestrator extends EventEmitter {
             reason: suggestion.reason,
             confidence: suggestion.confidence,
             autoApplicable: suggestion.autoApplicable,
+            beforePassRate,
+            beforeAvgDurationMs,
+            verificationStatus: 'pending',
+            verificationRunCount: 0,
           });
 
           eventBus.emitSafe(TestEventType.OPTIMIZATION_SUGGESTED, {
@@ -484,12 +498,100 @@ export class Orchestrator extends EventEmitter {
         }
       }
 
+      // === P0 新增：清理无效优化 ===
+      testLogger.step('🧹 清理无效优化建议');
+      const cleanedCount = this.repository.cleanupIneffectiveOptimizations(
+        this.projectName,
+        3  // 连续 3 次无效则清理
+      );
+      if (cleanedCount > 0) {
+        testLogger.pass(`✅ 已清理 ${cleanedCount} 个无效优化建议`);
+      }
+
       testLogger.pass('✅ 优化闭环完成', {
         suggestions: optimizationResult.suggestions.length,
         autoApplicable: optimizationResult.summary.autoApplicableCount,
       });
     } catch (error) {
       testLogger.warn('⚠️ 优化闭环执行失败', { error: String(error) });
+    }
+  }
+
+  /**
+   * 验证已应用优化的效果（P0 新增）
+   */
+  private async verifyAppliedOptimizations(testLogger: ReturnType<typeof logger.child>): Promise<void> {
+    if (!this.repository) return;
+
+    try {
+      const platformKey = this.platform === 'h5' ? 'h5-web' : 'pc-web';
+
+      // 查找需要验证的建议（已应用但未验证）
+      const pendingSuggestions = this.repository.loadApplicableOptimizations(
+        this.projectName,
+        platformKey,
+        true  // 只取已应用的
+      ).filter(s => s.applied && s.verificationStatus === 'pending');
+
+      if (pendingSuggestions.length === 0) {
+        testLogger.debug('无待验证的优化建议');
+        return;
+      }
+
+      testLogger.info(`发现 ${pendingSuggestions.length} 个待验证的优化建议`);
+
+      // 对每个建议进行验证
+      const verificationResults: import('@/types/knowledge.types.js').OptimizationVerificationResult[] = [];
+
+      for (const suggestion of pendingSuggestions) {
+        if (!suggestion.caseId) continue;
+
+        // 查找本次运行中该用例的结果
+        const caseResult = this.results.find(r => r.caseId === suggestion.caseId);
+
+        if (caseResult) {
+          const afterPassRate = caseResult.status === 'passed' ? 1 : 0;
+          const afterAvgDurationMs = caseResult.durationMs;
+
+          const result = this.repository.verifyOptimizationEffectiveness(
+            suggestion.id,
+            afterPassRate,
+            afterAvgDurationMs
+          );
+
+          verificationResults.push(result);
+
+          // 发出验证事件
+          eventBus.emitSafe(TestEventType.OPTIMIZATION_VERIFIED, {
+            suggestionId: suggestion.id,
+            caseId: suggestion.caseId,
+            effective: result.effective,
+            effectivenessScore: result.effectivenessScore,
+            passRateChange: result.passRateChange,
+            durationChange: result.durationChange,
+            shouldRetain: result.shouldRetain,
+          });
+
+          testLogger.debug(`优化验证: ${suggestion.caseId}`, {
+            effective: result.effective,
+            score: result.effectivenessScore.toFixed(2),
+            passRateChange: `${(result.passRateChange * 100).toFixed(1)}%`,
+          });
+        }
+      }
+
+      // 统计验证结果
+      const effectiveCount = verificationResults.filter(r => r.effective).length;
+      const ineffectiveCount = verificationResults.filter(r => !r.effective).length;
+
+      testLogger.pass(`✅ 优化验证完成`, {
+        total: verificationResults.length,
+        effective: effectiveCount,
+        ineffective: ineffectiveCount,
+      });
+
+    } catch (error) {
+      testLogger.warn('⚠️ 优化验证失败', { error: String(error) });
     }
   }
 
@@ -1153,6 +1255,45 @@ export class Orchestrator extends EventEmitter {
       needsManualIntervention: true,
     });
 
+    // === P1 新增：尝试状态图谱替代路径 ===
+    testLogger.step('🔀 尝试状态图谱替代路径');
+    const alternativeResult = await this.tryAlternativePath(
+      failedStep.action ?? 'unknown',
+      failedStep.target,
+      testCase,
+      testLogger
+    );
+
+    if (alternativeResult.retrySuccess && alternativeResult.result) {
+      // 替代路径成功
+      this.patternLibrary.recordFixSuccess(pattern.id);
+
+      // 记录替代路径成功记忆
+      this.recordRagMemory('self_heal', {
+        caseId: testCase.id,
+        caseName: testCase.name,
+        url: this.url,
+        platform: this.platform === 'h5' ? 'h5-web' : 'pc-web',
+        errorMessage: failedStep.errorMessage ?? 'Unknown error',
+        solutionStrategy: '状态图谱替代路径兜底成功',
+        solutionSteps: [
+          `自动修复失败后，通过状态图谱找到替代路径`,
+          `原失败步骤: ${failedStep.action}`,
+        ],
+        screenshots: alternativeResult.result.artifacts.screenshots,
+        logs: alternativeResult.result.artifacts.logs,
+        confidence: 0.85,
+      }, testLogger);
+
+      return {
+        retrySuccess: true,
+        retryCount,
+        selfHealed: true,
+        fixType: 'state-graph-alternative',
+        result: alternativeResult.result,
+      };
+    }
+
     return { retrySuccess: false, retryCount, selfHealed: false, fixType: config.fixType };
   }
 
@@ -1394,45 +1535,233 @@ export class Orchestrator extends EventEmitter {
 
     // 使用动作和目标创建简单哈希
     const content = `${action}:${target}`;
-    const crypto = require('node:crypto');
     return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16);
   }
 
   /**
    * 尝试使用状态图谱替代路径
+   * 当自愈失败时，查找并执行替代路径到达目标状态
    */
   private async tryAlternativePath(
-    targetAction: string,
+    failedAction: string,
+    failedTarget: string | undefined,
+    testCase: TestCase,
     testLogger: ReturnType<typeof logger.child>,
-  ): Promise<boolean> {
-    if (!this.stateGraphBuilder || !this.currentStateHash) return false;
+  ): Promise<{
+    pathFound: boolean;
+    pathExecuted: boolean;
+    retrySuccess: boolean;
+    result?: TestCaseResult;
+  }> {
+    const emptyResult = { pathFound: false, pathExecuted: false, retrySuccess: false };
+
+    if (!this.stateGraphBuilder || !this.currentStateHash) {
+      return emptyResult;
+    }
 
     try {
-      // 查找可能的替代路径
-      // 这里简化处理，实际应该基于具体目标状态查找
       const platformKey = this.platform === 'h5' ? 'h5-web' : 'pc-web';
       const graph = this.stateGraphBuilder.getGraph(this.projectName, platformKey as any);
 
-      if (!graph) return false;
-
-      // 查找从当前状态可达的高成功率的边
-      const outgoingEdges = graph.edges.filter(
-        e => e.sourceStateHash === this.currentStateHash &&
-             (e.successCount / e.transitionCount) > 0.8
-      );
-
-      if (outgoingEdges.length > 0) {
-        const bestEdge = outgoingEdges[0];
-        testLogger.info('🔀 找到可能的替代路径', {
-          options: outgoingEdges.length,
-          bestSuccessRate: bestEdge ? bestEdge.successCount / bestEdge.transitionCount : 0,
-        });
-        return true;
+      if (!graph) {
+        testLogger.debug('无可用状态图谱');
+        return emptyResult;
       }
 
-      return false;
+      // 1. 查找从当前状态可达的高成功率的替代边
+      const outgoingEdges = graph.edges.filter(
+        e => e.sourceStateHash === this.currentStateHash &&
+             (e.successCount / e.transitionCount) > 0.7
+      );
+
+      if (outgoingEdges.length === 0) {
+        testLogger.debug('未找到可行的替代路径');
+        return emptyResult;
+      }
+
+      // 按成功率排序，选择最佳替代路径
+      outgoingEdges.sort((a, b) =>
+        (b.successCount / b.transitionCount) - (a.successCount / a.transitionCount)
+      );
+
+      const bestEdge = outgoingEdges[0];
+      if (!bestEdge) {
+        testLogger.debug('排序后未找到有效边');
+        return emptyResult;
+      }
+
+      const successRate = bestEdge.successCount / bestEdge.transitionCount;
+
+      testLogger.info('🔀 找到替代路径', {
+        action: bestEdge.actionType,
+        target: bestEdge.actionTarget,
+        successRate: successRate.toFixed(2),
+        alternatives: outgoingEdges.length,
+      });
+
+      // 发出状态图谱路径发现事件
+      eventBus.emitSafe(TestEventType.STATE_GRAPH_PATH_FOUND, {
+        sourceHash: this.currentStateHash,
+        targetHash: bestEdge.targetStateHash,
+        pathLength: 1,
+        confidence: successRate,
+      });
+
+      // 2. 尝试执行替代路径
+      const executed = await this.executeAlternativePath(bestEdge, testLogger);
+
+      if (!executed) {
+        return { pathFound: true, pathExecuted: false, retrySuccess: false };
+      }
+
+      // 3. 在新状态下重试测试用例
+      testLogger.step('🔄 在新状态下重试测试用例');
+
+      const tester = this.platform === 'h5' || this.platform === 'all'
+        ? new H5Tester({
+            browser: 'chromium',
+            device: this.internalConfig.devices[0] || 'iPhone 15',
+            timeout: this.internalConfig.timeoutMs / this.cases.length,
+            screenshotOnFailure: this.internalConfig.screenshotOnFailure,
+            videoOnFailure: this.internalConfig.videoOnFailure,
+            artifactsDir: './data/screenshots',
+          })
+        : new PcTester({
+            browser: 'chromium',
+            viewport: { width: 1920, height: 1080 },
+            timeout: this.internalConfig.timeoutMs / this.cases.length,
+            screenshotOnFailure: this.internalConfig.screenshotOnFailure,
+            videoOnFailure: this.internalConfig.videoOnFailure,
+            artifactsDir: './data/screenshots',
+            baseUrl: this.url,
+          });
+
+      try {
+        await tester.initialize();
+        const retryResult = await tester.runTest(testCase);
+        await tester.close();
+
+        if (retryResult.status === 'passed') {
+          testLogger.pass('✅ 替代路径重试成功');
+
+          // 记录替代路径成功记忆
+          this.recordRagMemory('self_heal', {
+            caseId: testCase.id,
+            caseName: testCase.name,
+            url: this.url,
+            platform: platformKey as 'pc-web' | 'h5-web',
+            errorMessage: `原路径失败，使用替代路径成功`,
+            solutionStrategy: `状态图谱替代路径: ${bestEdge.actionType}`,
+            solutionSteps: [
+              `原动作: ${failedAction}`,
+              `替代动作: ${bestEdge.actionType}`,
+              `替代目标: ${bestEdge.actionTarget ?? 'N/A'}`,
+              `路径成功率: ${successRate.toFixed(2)}`,
+            ],
+            confidence: successRate,
+          }, testLogger);
+
+          // 更新边的成功计数
+          this.stateGraphBuilder.recordTransition(
+            bestEdge.sourceStateHash,
+            bestEdge.targetStateHash,
+            bestEdge.actionType as TestActionType,
+            this.projectName,
+            platformKey as any,
+            bestEdge.actionTarget ?? undefined,
+            bestEdge.actionValue ?? undefined,
+            true
+          );
+
+          return {
+            pathFound: true,
+            pathExecuted: true,
+            retrySuccess: true,
+            result: retryResult,
+          };
+        }
+
+        testLogger.warn('⚠️ 替代路径重试仍失败');
+        return { pathFound: true, pathExecuted: true, retrySuccess: false };
+
+      } catch (error) {
+        testLogger.warn('替代路径执行出错', { error: String(error) });
+        try {
+          await tester.close();
+        } catch {
+          // 忽略关闭错误
+        }
+        return { pathFound: true, pathExecuted: true, retrySuccess: false };
+      }
     } catch (error) {
       testLogger.warn('⚠️ 查找替代路径失败', { error: String(error) });
+      return emptyResult;
+    }
+  }
+
+  /**
+   * 执行替代路径的单步动作
+   */
+  private async executeAlternativePath(
+    edge: import('@/types/state-graph.types.js').StateEdge,
+    testLogger: ReturnType<typeof logger.child>,
+  ): Promise<boolean> {
+    if (!this.browser) {
+      testLogger.debug('浏览器未初始化，无法执行替代路径');
+      return false;
+    }
+
+    try {
+      const context = await this.browser.newContext({
+        viewport: this.platform === 'h5' ? { width: 375, height: 667 } : { width: 1920, height: 1080 },
+      });
+      const page = await context.newPage();
+
+      testLogger.step(`🔀 执行替代动作: ${edge.actionType}`, {
+        target: edge.actionTarget,
+      });
+
+      // 根据动作类型执行相应操作
+      switch (edge.actionType) {
+        case 'navigate':
+          if (edge.actionTarget) {
+            await page.goto(edge.actionTarget, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          }
+          break;
+        case 'click':
+          if (edge.actionTarget) {
+            await page.click(edge.actionTarget, { timeout: 10000 });
+          }
+          break;
+        case 'fill':
+          if (edge.actionTarget && edge.actionValue) {
+            await page.fill(edge.actionTarget, edge.actionValue, { timeout: 10000 });
+          }
+          break;
+        case 'scroll':
+          await page.evaluate(() => window.scrollBy(0, 500));
+          break;
+        case 'wait':
+          await page.waitForTimeout(parseInt(edge.actionValue ?? '1000', 10));
+          break;
+        default:
+          testLogger.debug(`未支持的动作类型: ${edge.actionType}`);
+          await context.close();
+          return false;
+      }
+
+      // 更新当前状态哈希
+      const snapshotter = new PageSnapshotter();
+      const snapshot = await snapshotter.takeSnapshot(page, page.url());
+      const newStateHash = this.stateGraphBuilder!.computeStateHash(snapshot);
+      this.currentStateHash = newStateHash;
+
+      testLogger.debug('✅ 替代动作执行成功', { newStateHash: newStateHash.slice(0, 8) });
+
+      await context.close();
+      return true;
+    } catch (error) {
+      testLogger.warn('替代动作执行失败', { error: String(error) });
       return false;
     }
   }

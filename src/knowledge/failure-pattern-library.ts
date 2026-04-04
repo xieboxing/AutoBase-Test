@@ -35,6 +35,8 @@ export interface FailurePatternWithFix {
   solution: string | null;
   autoFixConfig: AutoFixConfig | null;
   resolvedCount: number;
+  /** 误报次数：匹配成功但修复失败的次数 */
+  misfireCount: number;
   aiAnalyzed: boolean;
   created: string;
   updated: string;
@@ -200,6 +202,7 @@ export class FailurePatternLibrary {
           solution: null,
           autoFixConfig: rule.autoFixConfig,
           resolvedCount: 0,
+          misfireCount: 0,
           aiAnalyzed: false,
           created: new Date().toISOString(),
           updated: new Date().toISOString(),
@@ -273,6 +276,7 @@ export class FailurePatternLibrary {
       solution: params.solution ?? null,
       autoFixConfig: params.autoFixConfig ?? null,
       resolvedCount: 0,
+      misfireCount: 0,
       aiAnalyzed: false,
       created: now,
       updated: now,
@@ -282,8 +286,8 @@ export class FailurePatternLibrary {
       INSERT INTO failure_patterns (
         id, pattern_type, pattern_key, description, frequency,
         last_occurrence, first_occurrence, root_cause, solution,
-        auto_fix_config, resolved_count, ai_analyzed, created, updated
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        auto_fix_config, resolved_count, misfire_count, ai_analyzed, created, updated
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       pattern.id,
       pattern.patternType,
@@ -296,6 +300,7 @@ export class FailurePatternLibrary {
       pattern.solution,
       pattern.autoFixConfig ? JSON.stringify(pattern.autoFixConfig) : null,
       pattern.resolvedCount,
+      pattern.misfireCount,
       pattern.aiAnalyzed ? 1 : 0,
       pattern.created,
       pattern.updated,
@@ -401,10 +406,66 @@ export class FailurePatternLibrary {
   }
 
   /**
-   * 记录修复失败
+   * 记录修复失败（误报）
+   * 增加误报计数，用于后续清理低效模式
    */
   recordFixFailure(patternId: string, errorMessage: string): void {
-    logger.warn('⚠️ 自动修复失败', { patternId, error: errorMessage });
+    const now = new Date().toISOString();
+    this.db.execute(`
+      UPDATE failure_patterns SET
+        misfire_count = misfire_count + 1,
+        updated = ?
+      WHERE id = ?
+    `, [now, patternId]);
+
+    logger.warn('⚠️ 自动修复失败（误报）', { patternId, error: errorMessage });
+  }
+
+  /**
+   * 获取模式的有效性分数
+   * 有效性 = 成功次数 / (成功次数 + 误报次数)
+   */
+  getPatternEffectiveness(patternId: string): number {
+    const row = this.db.queryOne<{ resolved_count: number; misfire_count: number }>(
+      'SELECT resolved_count, misfire_count FROM failure_patterns WHERE id = ?',
+      [patternId]
+    );
+
+    if (!row) return 0;
+
+    const total = row.resolved_count + row.misfire_count;
+    if (total === 0) return 0.5; // 无数据时返回中性值
+
+    return row.resolved_count / total;
+  }
+
+  /**
+   * 清理低效模式（误报率高的模式）
+   * @param minAttempts 最小尝试次数阈值
+   * @param maxMisfireRate 最大允许误报率（0-1）
+   * @returns 清理的模式数量
+   */
+  cleanupIneffectivePatterns(minAttempts: number = 3, maxMisfireRate: number = 0.7): number {
+    // 查找低效模式：尝试次数 >= minAttempts 且误报率 > maxMisfireRate
+    const ineffectivePatterns = this.db.query<{ id: string; pattern_key: string }>(`
+      SELECT id, pattern_key FROM failure_patterns
+      WHERE (resolved_count + misfire_count) >= ?
+        AND misfire_count > 0
+        AND (CAST(misfire_count AS REAL) / (resolved_count + misfire_count)) > ?
+    `, [minAttempts, maxMisfireRate]);
+
+    if (ineffectivePatterns.length === 0) {
+      return 0;
+    }
+
+    // 删除低效模式
+    for (const pattern of ineffectivePatterns) {
+      this.db.execute('DELETE FROM failure_patterns WHERE id = ?', [pattern.id]);
+      logger.info('🗑️ 清理低效失败模式', { patternId: pattern.id, patternKey: pattern.pattern_key });
+    }
+
+    logger.info(`🧹 已清理 ${ineffectivePatterns.length} 个低效失败模式`);
+    return ineffectivePatterns.length;
   }
 
   /**
@@ -423,6 +484,7 @@ export class FailurePatternLibrary {
       solution: string | null;
       auto_fix_config: string | null;
       resolved_count: number;
+      misfire_count: number;
       ai_analyzed: number;
       created: string;
       updated: string;
@@ -451,6 +513,7 @@ export class FailurePatternLibrary {
       solution: string | null;
       auto_fix_config: string | null;
       resolved_count: number;
+      misfire_count: number;
       ai_analyzed: number;
       created: string;
       updated: string;
@@ -479,6 +542,7 @@ export class FailurePatternLibrary {
       solution: string | null;
       auto_fix_config: string | null;
       resolved_count: number;
+      misfire_count: number;
       ai_analyzed: number;
       created: string;
       updated: string;
@@ -503,6 +567,7 @@ export class FailurePatternLibrary {
       solution: string | null;
       auto_fix_config: string | null;
       resolved_count: number;
+      misfire_count: number;
       ai_analyzed: number;
       created: string;
       updated: string;
@@ -527,6 +592,7 @@ export class FailurePatternLibrary {
       solution: string | null;
       auto_fix_config: string | null;
       resolved_count: number;
+      misfire_count: number;
       ai_analyzed: number;
       created: string;
       updated: string;
@@ -568,6 +634,7 @@ export class FailurePatternLibrary {
     solution: string | null;
     auto_fix_config: string | null;
     resolved_count: number;
+    misfire_count?: number;
     ai_analyzed: number;
     created: string;
     updated: string;
@@ -584,6 +651,7 @@ export class FailurePatternLibrary {
       solution: row.solution,
       autoFixConfig: row.auto_fix_config ? JSON.parse(row.auto_fix_config) as AutoFixConfig : null,
       resolvedCount: row.resolved_count,
+      misfireCount: row.misfire_count ?? 0,
       aiAnalyzed: row.ai_analyzed === 1,
       created: row.created,
       updated: row.updated,

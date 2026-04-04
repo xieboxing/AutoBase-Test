@@ -690,6 +690,10 @@ export class KnowledgeRepository {
     reason: string;
     confidence: number;
     autoApplicable: boolean;
+    beforePassRate?: number | null;
+    beforeAvgDurationMs?: number | null;
+    verificationStatus?: 'pending' | 'verified' | 'invalid';
+    verificationRunCount?: number;
   }): string {
     const id = nanoid(8);
     const now = new Date().toISOString();
@@ -697,8 +701,10 @@ export class KnowledgeRepository {
     this.db.execute(`
       INSERT INTO auto_optimization_suggestions (
         id, project, platform, case_id, suggestion_type, suggestion_value,
-        reason, confidence, auto_applicable, applied, created
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+        reason, confidence, auto_applicable, applied,
+        before_pass_rate, before_avg_duration_ms,
+        verification_status, verification_run_count, created
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
     `, [
       id,
       suggestion.project,
@@ -709,6 +715,10 @@ export class KnowledgeRepository {
       suggestion.reason,
       suggestion.confidence,
       suggestion.autoApplicable ? 1 : 0,
+      suggestion.beforePassRate ?? null,
+      suggestion.beforeAvgDurationMs ?? null,
+      suggestion.verificationStatus ?? 'pending',
+      suggestion.verificationRunCount ?? 0,
       now,
     ]);
 
@@ -726,6 +736,288 @@ export class KnowledgeRepository {
       SET applied = 1, applied_time = ?, effectiveness_score = ?
       WHERE id = ?
     `, [now, effectivenessScore ?? null, id]);
+  }
+
+  /**
+   * 加载可自动应用的优化建议
+   * @param project 项目名称
+   * @param platform 平台（可选）
+   * @param appliedOnly 若为 true，只返回已应用的建议；若为 false/未提供，返回未应用的建议
+   * @param confidenceThreshold 置信度阈值（默认 0.85）
+   */
+  loadApplicableOptimizations(
+    project: string,
+    platform?: Platform,
+    appliedOnly?: boolean,
+    confidenceThreshold: number = 0.85
+  ): Array<{
+    id: string;
+    caseId: string | null;
+    suggestionType: string;
+    suggestionValue: string | null;
+    reason: string;
+    confidence: number;
+    autoApplicable: boolean;
+    applied: boolean;
+    verificationStatus: string;
+    beforePassRate: number | null;
+    beforeAvgDurationMs: number | null;
+    appliedAt: string | null;
+  }> {
+    const platformFilter = platform ? 'AND (platform = ? OR platform IS NULL)' : '';
+    const appliedFilter = appliedOnly === true
+      ? 'AND applied = 1 AND verification_status = "pending"'
+      : appliedOnly === false
+        ? 'AND applied = 0'
+        : '';
+    const params = platform
+      ? [project, confidenceThreshold, platform]
+      : [project, confidenceThreshold];
+
+    const rows = this.db.query<{
+      id: string;
+      case_id: string | null;
+      suggestion_type: string;
+      suggestion_value: string | null;
+      reason: string;
+      confidence: number;
+      auto_applicable: number;
+      applied: number;
+      verification_status: string;
+      before_pass_rate: number | null;
+      before_avg_duration_ms: number | null;
+      applied_time: string | null;
+    }>(`
+      SELECT id, case_id, suggestion_type, suggestion_value, reason, confidence,
+             auto_applicable, applied, verification_status,
+             before_pass_rate, before_avg_duration_ms, applied_time
+      FROM auto_optimization_suggestions
+      WHERE project = ? AND confidence >= ? AND auto_applicable = 1
+      ${appliedFilter}
+      ${platformFilter}
+      ORDER BY confidence DESC
+      LIMIT 20
+    `, params);
+
+    return rows.map(r => ({
+      id: r.id,
+      caseId: r.case_id,
+      suggestionType: r.suggestion_type,
+      suggestionValue: r.suggestion_value,
+      reason: r.reason,
+      confidence: r.confidence,
+      autoApplicable: r.auto_applicable === 1,
+      applied: r.applied === 1,
+      verificationStatus: r.verification_status,
+      beforePassRate: r.before_pass_rate,
+      beforeAvgDurationMs: r.before_avg_duration_ms,
+      appliedAt: r.applied_time,
+    }));
+  }
+
+  /**
+   * 记录优化建议应用前的状态（用于后续验证）
+   */
+  recordOptimizationBeforeState(
+    id: string,
+    beforePassRate: number,
+    beforeAvgDurationMs: number
+  ): void {
+    this.db.execute(`
+      UPDATE auto_optimization_suggestions
+      SET before_pass_rate = ?, before_avg_duration_ms = ?, applied = 1, applied_time = ?
+      WHERE id = ?
+    `, [beforePassRate, beforeAvgDurationMs, new Date().toISOString(), id]);
+  }
+
+  /**
+   * 验证优化效果（应用后调用）
+   * 对比应用前后的通过率和耗时，判断优化是否有效
+   */
+  verifyOptimizationEffectiveness(
+    id: string,
+    afterPassRate: number,
+    afterAvgDurationMs: number
+  ): import('@/types/knowledge.types.js').OptimizationVerificationResult {
+    const row = this.db.queryOne<{
+      case_id: string | null;
+      before_pass_rate: number | null;
+      before_avg_duration_ms: number | null;
+      suggestion_type: string;
+    }>('SELECT case_id, before_pass_rate, before_avg_duration_ms, suggestion_type FROM auto_optimization_suggestions WHERE id = ?', [id]);
+
+    if (!row) {
+      return {
+        suggestionId: id,
+        caseId: '',
+        effective: false,
+        effectivenessScore: 0,
+        passRateChange: 0,
+        durationChange: 0,
+        verificationBasis: '优化建议不存在',
+        shouldRetain: false,
+      };
+    }
+
+    const beforePassRate = row.before_pass_rate ?? 0;
+    const beforeDuration = row.before_avg_duration_ms ?? 0;
+
+    // 计算变化
+    const passRateChange = afterPassRate - beforePassRate;
+    const durationChange = beforeDuration > 0 ? (afterAvgDurationMs - beforeDuration) / beforeDuration : 0;
+
+    // 判断是否有效
+    // 通过率提升 >= 5% 或 耗时降低 >= 10% 且通过率未下降
+    const isEffective = passRateChange >= 0.05 || (durationChange <= -0.10 && passRateChange >= -0.05);
+
+    // 计算效果分数 (-1 到 1)
+    // 正数表示改进，负数表示恶化
+    let effectivenessScore = 0;
+    if (passRateChange > 0) {
+      effectivenessScore += Math.min(passRateChange, 0.5) * 2; // 最高 1.0
+    } else if (passRateChange < 0) {
+      effectivenessScore += Math.max(passRateChange, -0.5) * 2; // 最低 -1.0
+    }
+
+    // 耗时优化也有贡献
+    if (row.suggestion_type === 'increase-timeout' || row.suggestion_type === 'add-wait') {
+      // 这类优化耗时增加是预期的，不作为负面因素
+      if (passRateChange >= 0) {
+        effectivenessScore = Math.max(effectivenessScore, passRateChange * 2);
+      }
+    } else if (durationChange < 0) {
+      effectivenessScore += Math.abs(durationChange) * 0.5;
+    }
+
+    effectivenessScore = Math.max(-1, Math.min(1, effectivenessScore));
+
+    // 更新数据库
+    const now = new Date().toISOString();
+    const verificationStatus = isEffective ? 'verified' : 'invalid';
+
+    this.db.execute(`
+      UPDATE auto_optimization_suggestions
+      SET after_pass_rate = ?,
+          after_avg_duration_ms = ?,
+          effectiveness_score = ?,
+          verification_status = ?,
+          verified_at = ?,
+          verification_run_count = verification_run_count + 1
+      WHERE id = ?
+    `, [afterPassRate, afterAvgDurationMs, effectivenessScore, verificationStatus, now, id]);
+
+    const result: import('@/types/knowledge.types.js').OptimizationVerificationResult = {
+      suggestionId: id,
+      caseId: row.case_id ?? '',
+      effective: isEffective,
+      effectivenessScore,
+      passRateChange,
+      durationChange,
+      verificationBasis: isEffective
+        ? `通过率变化: ${(passRateChange * 100).toFixed(1)}%, 耗时变化: ${(durationChange * 100).toFixed(1)}%`
+        : `优化无效: 通过率下降 ${(Math.abs(passRateChange) * 100).toFixed(1)}%`,
+      shouldRetain: isEffective && effectivenessScore >= 0.1,
+    };
+
+    logger.info('📊 优化效果验证完成', {
+      suggestionId: id,
+      caseId: row.case_id,
+      effective: isEffective,
+      effectivenessScore: effectivenessScore.toFixed(2),
+      passRateChange: (passRateChange * 100).toFixed(1) + '%',
+    });
+
+    return result;
+  }
+
+  /**
+   * 清理无效的优化建议（持续多次验证失败的）
+   */
+  cleanupIneffectiveOptimizations(
+    project: string,
+    maxFailedVerifications: number = 2
+  ): number {
+    // 删除验证状态为 invalid 且效果分数 < 0 的建议
+    const result = this.db.execute(`
+      DELETE FROM auto_optimization_suggestions
+      WHERE project = ? AND verification_status = 'invalid' AND effectiveness_score < 0
+    `, [project]);
+
+    if (result.changes > 0) {
+      logger.info(`🧹 清理了 ${result.changes} 条无效优化建议`);
+    }
+
+    return result.changes;
+  }
+
+  /**
+   * 获取优化建议统计（用于报告）
+   */
+  getOptimizationStats(project: string, platform?: Platform): {
+    total: number;
+    applied: number;
+    verified: number;
+    invalid: number;
+    avgEffectivenessScore: number;
+    topEffectiveOptimizations: Array<{
+      caseId: string;
+      suggestionType: string;
+      effectivenessScore: number;
+    }>;
+  } {
+    const platformFilter = platform ? 'AND (platform = ? OR platform IS NULL)' : '';
+    const params = platform ? [project, platform] : [project];
+
+    const total = this.db.queryOne<{ count: number }>(
+      `SELECT COUNT(*) as count FROM auto_optimization_suggestions WHERE project = ? ${platformFilter}`,
+      params
+    )?.count ?? 0;
+
+    const applied = this.db.queryOne<{ count: number }>(
+      `SELECT COUNT(*) as count FROM auto_optimization_suggestions WHERE project = ? AND applied = 1 ${platformFilter}`,
+      params
+    )?.count ?? 0;
+
+    const verified = this.db.queryOne<{ count: number }>(
+      `SELECT COUNT(*) as count FROM auto_optimization_suggestions WHERE project = ? AND verification_status = 'verified' ${platformFilter}`,
+      params
+    )?.count ?? 0;
+
+    const invalid = this.db.queryOne<{ count: number }>(
+      `SELECT COUNT(*) as count FROM auto_optimization_suggestions WHERE project = ? AND verification_status = 'invalid' ${platformFilter}`,
+      params
+    )?.count ?? 0;
+
+    const avgEffectivenessScore = this.db.queryOne<{ avg: number }>(
+      `SELECT AVG(effectiveness_score) as avg FROM auto_optimization_suggestions WHERE project = ? AND verification_status = 'verified' ${platformFilter}`,
+      params
+    )?.avg ?? 0;
+
+    const topEffectiveOptimizations = this.db.query<{
+      case_id: string | null;
+      suggestion_type: string;
+      effectiveness_score: number;
+    }>(`
+      SELECT case_id, suggestion_type, effectiveness_score
+      FROM auto_optimization_suggestions
+      WHERE project = ? AND verification_status = 'verified' AND effectiveness_score > 0
+      ${platformFilter}
+      ORDER BY effectiveness_score DESC
+      LIMIT 5
+    `, params).map(r => ({
+      caseId: r.case_id ?? '',
+      suggestionType: r.suggestion_type,
+      effectivenessScore: r.effectiveness_score,
+    }));
+
+    return {
+      total,
+      applied,
+      verified,
+      invalid,
+      avgEffectivenessScore,
+      topEffectiveOptimizations,
+    };
   }
 
   // ===== 元素映射查询 =====

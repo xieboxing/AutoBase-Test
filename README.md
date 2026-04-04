@@ -1,23 +1,23 @@
-# AutoBase-Test 🤖
+# AutoBase-Test
 
 > **给我一个 URL 或 APK，全自动完成专业级测试**
 
 一个 AI 驱动的全自动化测试平台，让产品经理（非技术人员）也能轻松完成专业级测试。
 
-## ✨ 核心特性
+## 核心特性
 
-- 🌐 **Web 测试**：提供 URL，自动测试 PC Web + H5 移动端
-- 📱 **APP 测试**：提供 APK，自动测试 Android 应用
-- 🔗 **API 测试**：提供 API 地址，自动发现并测试接口
-- 🤖 **AI 智能**：自动生成测试用例、自愈元素定位、智能优化
-- 📊 **中文报告**：生成易读的中文测试报告，含截图和建议
-- 🔄 **自学习**：越跑越聪明，自动优化测试流程
-- 🔍 **探索式测试**：AI 主动漫游发现异常
-- 👁️ **视觉回归**：自动检测 UI 变化
-- ⚡ **并发执行**：多 Worker 加速测试
-- 🧠 **RAG 记忆**：沉淀测试经验，智能召回
+- **Web 测试**：提供 URL，自动测试 PC Web + H5 移动端
+- **APP 测试**：提供 APK，自动测试 Android 应用
+- **API 测试**：提供 API 地址，自动发现并测试接口
+- **AI 智能**：自动生成测试用例、自愈元素定位、智能优化
+- **中文报告**：生成易读的中文测试报告，含截图和建议
+- **自学习**：越跑越聪明，自动优化测试流程
+- **探索式测试**：AI 主动漫游发现异常
+- **视觉回归**：自动检测 UI 变化
+- **并发执行**：多 Worker 加速测试
+- **RAG 记忆**：沉淀测试经验，智能召回
 
-## 🚀 快速开始
+## 快速开始
 
 ### 1. 安装
 
@@ -59,7 +59,7 @@ npx autotest app --package com.example.myapp
 npx autotest api https://api.example.com/v1
 ```
 
-## 📋 命令概览
+## 命令概览
 
 | 命令 | 说明 |
 |------|------|
@@ -75,7 +75,7 @@ npx autotest api https://api.example.com/v1
 | `npx autotest doctor` | 检查环境 |
 | `npx autotest setup` | 安装浏览器驱动 |
 
-## 🌐 Web 测试详细用法
+## Web 测试详细用法
 
 ```bash
 # 仅测试 PC 端
@@ -102,13 +102,14 @@ npx autotest web https://example.com --login-url /login --username admin --passw
 # 设置测试深度（AI 探索页面的深度）
 npx autotest web https://example.com --depth 3
 
-# 生成多种格式报告
-npx autotest web https://example.com --report html,json,markdown
+# 并发执行
+npx autotest web https://example.com --parallel auto
+npx autotest web https://example.com --parallel 4
 ```
 
-## 📱 APP 测试详细用法
+## APP 测试详细用法
 
-### 环境准备（重要）
+### 环境准备
 
 APP 测试需要以下环境：
 
@@ -155,16 +156,12 @@ adb devices
 
 # 使用模拟器
 # Android Studio 自带模拟器，或使用第三方模拟器如 Genymotion
-# 启动模拟器后，adb devices 应显示设备
 ```
 
 #### 5. 环境检查
 ```bash
 # 一键检查所有环境依赖
 npm run doctor
-
-# 或
-npx tsx src/cli/index.ts doctor
 ```
 
 ### 测试 APK 文件
@@ -201,8 +198,6 @@ npx tsx src/cli/index.ts app --package com.example.myapp --activity .MainActivit
 
 ### APP 测试内容
 
-测试平台会自动执行以下测试：
-
 | 测试项 | 说明 |
 |--------|------|
 | 安装测试 | APK 安装是否成功、安装时间、占用空间 |
@@ -214,26 +209,7 @@ npx tsx src/cli/index.ts app --package com.example.myapp --activity .MainActivit
 | 性能测试 | CPU、内存、FPS、电量消耗 |
 | 稳定性测试 | Monkey 随机操作测试 |
 
-### 示例：测试一个 APK
-
-```bash
-# 1. 确保 Appium 已启动
-appium &
-
-# 2. 连接设备
-adb devices
-# 输出应显示类似：
-# List of devices attached
-# emulator-5554   device
-
-# 3. 执行测试
-npx tsx src/cli/index.ts app ./Slickorps_1.0.0.apk --type smoke
-
-# 4. 查看报告
-# 报告自动生成在 data/reports/ 目录
-```
-
-## 🔗 API 测试详细用法
+## API 测试详细用法
 
 ```bash
 # 基础 API 测试
@@ -248,7 +224,7 @@ npx autotest api https://api.example.com/v1 --type contract
 npx autotest api https://api.example.com/v1 --type stress
 ```
 
-## 🗄️ 数据库与知识库
+## 数据库与知识库
 
 测试平台使用 SQLite 数据库存储测试结果和知识库数据，支持按平台（PC/H5/APP）分类存储。
 
@@ -281,16 +257,7 @@ npm run db:init
 npm run db:migrate
 ```
 
-### 向量扩展（可选）
-
-向量扩展用于 AI 语义搜索功能：
-- 语义搜索测试用例
-- 智能元素匹配
-- 失败模式聚类分析
-
-如果向量扩展不可用，系统会自动降级到普通模式运行。
-
-## 📊 测试报告
+## 测试报告
 
 测试完成后自动生成报告，存储在 `data/reports/` 目录：
 
@@ -312,7 +279,7 @@ npx autotest report --diff run-001 run-002
 npx autotest report --trend --last 10
 ```
 
-## 🤖 AI 智能功能
+## AI 智能功能
 
 ### 自动生成测试用例
 
@@ -351,7 +318,7 @@ npx autotest optimize --project myproject --auto-apply
 - 标记无效用例建议删除
 - 补充未覆盖的测试场景
 
-## 📹 录制测试用例
+## 录制测试用例
 
 手动操作一遍，自动生成测试用例：
 
@@ -362,7 +329,7 @@ npx autotest record https://example.com
 # 生成的用例保存在 test-suites/default/cases/
 ```
 
-## ⚙️ 环境要求
+## 环境要求
 
 - **Node.js**：20.x 或更高版本
 - **浏览器**：Chrome（自动安装）、Firefox、Safari（可选）
@@ -375,7 +342,7 @@ npx autotest record https://example.com
 npx autotest doctor
 ```
 
-## 📁 项目配置
+## 项目配置
 
 创建项目配置文件 `test-suites/myproject/config.json`：
 
@@ -412,7 +379,7 @@ npx autotest doctor
 }
 ```
 
-## 🔧 配置 AI 模型
+## 配置 AI 模型
 
 创建 `.env` 文件：
 
@@ -435,7 +402,7 @@ HTTPS_PROXY=http://localhost:7890
 - 使用预设的等待策略
 - 不进行智能优化
 
-## 📖 测试用例格式
+## 测试用例格式
 
 测试用例使用 JSON 格式：
 
@@ -458,7 +425,7 @@ HTTPS_PROXY=http://localhost:7890
 }
 ```
 
-## 🔍 探索式测试
+## 探索式测试
 
 让 AI 主动漫游应用，发现异常和未知问题：
 
@@ -488,7 +455,7 @@ npx autotest explore https://example.com --no-headless
 - 发现的异常（控制台错误、网络错误、崩溃等）
 - 自动生成的回归测试用例
 
-## 👁️ 视觉回归测试
+## 视觉回归测试
 
 自动检测 UI 视觉变化：
 
@@ -509,19 +476,7 @@ npx autotest visual delete baseline-001
 npx autotest visual stats
 ```
 
-## ⚡ 并发执行
-
-加速测试执行：
-
-```bash
-# 自动检测 CPU 核心数并发执行
-npx autotest web https://example.com --parallel auto
-
-# 指定并发数
-npx autotest web https://example.com --parallel 4
-```
-
-## 🧠 智能特性
+## 智能特性
 
 ### 知识库反哺闭环
 
@@ -566,7 +521,7 @@ npx autotest web https://example.com --parallel 4
 - 生成端到端测试用例
 - 识别关键业务步骤
 
-## ❓ 常见问题 FAQ
+## 常见问题 FAQ
 
 ### Web 测试相关
 
@@ -620,7 +575,7 @@ A: 报告默认保存在 `data/reports/` 目录。运行 `npx autotest report --
 **Q: 如何自定义报告输出目录？**
 A: 在项目配置文件 `config.json` 的 `settings.reportFormats` 中设置输出目录。
 
-## 🧪 开发命令
+## 开发命令
 
 ```bash
 # 开发模式
@@ -648,16 +603,33 @@ npm run db:init
 npm run db:migrate
 ```
 
-## 📚 文档
+## 技术栈
 
-- [架构说明](docs/architecture.md)
-- [AI Prompt 设计](docs/ai-prompts.md)
-- [扩展测试器](docs/extending.md)
+| 类别 | 技术 |
+|------|------|
+| 语言 | TypeScript 5.x strict |
+| Web 自动化 | Playwright |
+| APP 自动化 | Appium 2 + WebDriverIO |
+| 性能测试 | Lighthouse CI |
+| 无障碍测试 | axe-core + Playwright |
+| 视觉对比 | pixelmatch |
+| AI 客户端 | Anthropic SDK / OpenAI SDK |
+| CLI | Commander.js + Inquirer |
+| 数据库 | better-sqlite3 |
+| 报告模板 | Handlebars |
+| 图表 | ECharts |
+| 日志 | pino |
+| 测试 | vitest |
 
-## 🤝 贡献
+## 文档
 
-欢迎提交 Issue 和 Pull Request！
+- [CLAUDE.md](./CLAUDE.md) - AI 协作规范
+- [APP-Test.md](./APP-Test.md) - APP 测试指南
+- [WEB-Test.md](./WEB-Test.md) - Web 测试指南
+- [架构说明](./docs/architecture.md)
+- [AI Prompt 设计](./docs/ai-prompts.md)
+- [扩展测试器](./docs/extending.md)
 
-## 📄 许可证
+## 许可证
 
 MIT License

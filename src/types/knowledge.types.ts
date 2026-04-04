@@ -215,7 +215,41 @@ export interface OptimizationSuggestionRecord {
   applied: boolean;
   appliedAt: string | null;
   effectivenessScore: number | null;
+  /** 应用前的通过率 */
+  beforePassRate: number | null;
+  /** 应用后的通过率 */
+  afterPassRate: number | null;
+  /** 应用前的平均耗时 */
+  beforeAvgDurationMs: number | null;
+  /** 应用后的平均耗时 */
+  afterAvgDurationMs: number | null;
+  /** 验证状态：pending/verified/invalid */
+  verificationStatus: 'pending' | 'verified' | 'invalid';
+  /** 验证时间 */
+  verifiedAt: string | null;
+  /** 验证运行次数 */
+  verificationRunCount: number;
   createdAt: string;
+}
+
+/**
+ * 优化效果验证结果
+ */
+export interface OptimizationVerificationResult {
+  suggestionId: string;
+  caseId: string;
+  /** 是否有效 */
+  effective: boolean;
+  /** 效果分数 (-1 到 1，负数表示恶化) */
+  effectivenessScore: number;
+  /** 通过率变化 */
+  passRateChange: number;
+  /** 耗时变化 */
+  durationChange: number;
+  /** 验证依据 */
+  verificationBasis: string;
+  /** 建议是否应该保留 */
+  shouldRetain: boolean;
 }
 
 /**

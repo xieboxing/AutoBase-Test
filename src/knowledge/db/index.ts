@@ -231,6 +231,7 @@ export class KnowledgeDatabase {
         solution_steps TEXT,
         auto_fix_config TEXT,
         resolved_count INTEGER DEFAULT 0,
+        misfire_count INTEGER DEFAULT 0,
         ai_analyzed INTEGER DEFAULT 0,
         auto_fixable INTEGER DEFAULT 0,
         created TEXT NOT NULL,
@@ -468,7 +469,7 @@ export class KnowledgeDatabase {
         created TEXT NOT NULL
       );
 
-      -- 自动优化建议表
+      -- 自动优化建议表（增强版，支持收益验证）
       CREATE TABLE IF NOT EXISTS auto_optimization_suggestions (
         id TEXT PRIMARY KEY,
         project TEXT NOT NULL,
@@ -482,8 +483,18 @@ export class KnowledgeDatabase {
         applied INTEGER DEFAULT 0,
         applied_time TEXT,
         effectiveness_score REAL,
+        before_pass_rate REAL,
+        after_pass_rate REAL,
+        before_avg_duration_ms INTEGER,
+        after_avg_duration_ms INTEGER,
+        verification_status TEXT DEFAULT 'pending',
+        verified_at TEXT,
+        verification_run_count INTEGER DEFAULT 0,
         created TEXT NOT NULL
       );
+
+      CREATE INDEX IF NOT EXISTS idx_auto_opt_suggestions_case ON auto_optimization_suggestions(case_id);
+      CREATE INDEX IF NOT EXISTS idx_auto_opt_suggestions_status ON auto_optimization_suggestions(verification_status);
 
       -- 创建索引
       CREATE INDEX IF NOT EXISTS idx_test_runs_project ON test_runs(project);

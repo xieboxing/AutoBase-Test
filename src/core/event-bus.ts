@@ -102,6 +102,7 @@ export enum TestEventType {
   // 优化事件
   OPTIMIZATION_SUGGESTED = 'optimization:suggested',
   OPTIMIZATION_APPLIED = 'optimization:applied',
+  OPTIMIZATION_VERIFIED = 'optimization:verified',
 }
 
 /**
@@ -417,6 +418,15 @@ export interface TestEventMap {
     caseId?: string;
     suggestionType: string;
     effectivenessScore?: number;
+  };
+  [TestEventType.OPTIMIZATION_VERIFIED]: {
+    suggestionId: string;
+    caseId: string;
+    effective: boolean;
+    effectivenessScore: number;
+    passRateChange: number;
+    durationChange?: number;
+    shouldRetain: boolean;
   };
 }
 

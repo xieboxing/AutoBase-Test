@@ -10,7 +10,16 @@ import {
 } from './event-bus.js';
 
 /**
+ * @deprecated 此类已废弃，请使用 PcTester 或 H5Tester
+ *
  * 测试执行器配置
+ *
+ * **重要说明**：
+ * 此 TestRunner 类是一个早期实现的占位符版本，实际测试执行请使用：
+ * - `PcTester` (src/testers/web/pc-tester.ts) - PC Web 测试
+ * - `H5Tester` (src/testers/web/h5-tester.ts) - 移动 H5 测试
+ *
+ * Orchestrator 已直接使用 PcTester/H5Tester，此文件仅保留用于兼容性。
  */
 export interface TestRunnerConfig {
   platform: Platform;
@@ -53,6 +62,12 @@ export interface CaseResult {
 /**
  * 测试执行器
  * 负责执行单个测试用例的各个步骤
+ *
+ * @deprecated 此类已废弃，请改用 PcTester 或 H5Tester
+ * @see PcTester - PC Web 测试器
+ * @see H5Tester - 移动 H5 测试器
+ *
+ * **警告**：此类的动作实现均为占位符，不会实际执行测试操作。
  */
 export class TestRunner {
   private platform: Platform;
@@ -81,7 +96,7 @@ export class TestRunner {
     const screenshots: string[] = [];
     let status: TestStatus = 'passed';
     let retryCount = 0;
-    let selfHealed = false;
+    const selfHealed = false;
     let selfHealSelector: string | undefined;
 
     testLogger.info(`开始执行用例: ${testCase.name}`);

@@ -376,7 +376,7 @@ export class ExplorationRunner extends EventEmitter {
         return this.stateGraphBuilder.recordState(
           snapshot,
           this.trajectory?.projectId || 'default',
-          platformKey as any,
+          platformKey,
         );
       }
 
@@ -811,7 +811,7 @@ export class ExplorationRunner extends EventEmitter {
       this.ragMemory.store({
         projectId: this.trajectory?.projectId || 'default',
         platform: (context.platform || 'pc-web') as 'pc-web' | 'h5-web',
-        memoryType: 'exploration' as any,
+        memoryType: 'exploration',
         contextUrl: context.url || '',
         contextPackage: null,
         domSummary: context.stateName || null,
@@ -832,18 +832,48 @@ export class ExplorationRunner extends EventEmitter {
    * 清理资源
    */
   private async cleanup(): Promise<void> {
-    try {
-      if (this.page) {
+    const cleanupLogger = logger.child({ component: 'ExplorationRunner' });
+
+    // 清理页面
+    if (this.page) {
+      try {
         await this.page.close();
-        this.page = null;
+      } catch (error) {
+        cleanupLogger.warn('关闭页面失败', { error: String(error) });
       }
-      if (this.context) {
-        await this.context.close();
-        this.context = null;
-      }
-    } catch (error) {
-      logger.warn(`清理资源失败: ${error instanceof Error ? error.message : String(error)}`);
+      this.page = null;
     }
+
+    // 清理上下文
+    if (this.context) {
+      try {
+        await this.context.close();
+      } catch (error) {
+        cleanupLogger.warn('关闭浏览器上下文失败', { error: String(error) });
+      }
+      this.context = null;
+    }
+
+    // 清理状态图谱构建器
+    if (this.stateGraphBuilder) {
+      try {
+        // 持久化当前图谱（如果有轨迹信息）
+        if (this.trajectory) {
+          await this.stateGraphBuilder.persistGraph(
+            this.trajectory.projectId,
+            this.trajectory.platform
+          );
+        }
+      } catch (error) {
+        cleanupLogger.warn('持久化状态图谱失败', { error: String(error) });
+      }
+      this.stateGraphBuilder = null;
+    }
+
+    // 清理 RAG 记忆引擎引用
+    this.ragMemory = null;
+
+    cleanupLogger.debug('探索资源清理完成');
   }
 }
 

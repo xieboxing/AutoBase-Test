@@ -340,7 +340,7 @@ export class WebCrawler extends EventEmitter {
     // 等待一段时间确保 SPA 内容加载
     await page.waitForTimeout(500);
 
-    // 检查是否有 pending 的网络请求
+    // 检查是否有 pending 的网络请求或 loading 状态
     try {
       await page.waitForFunction(
         () => {
@@ -350,13 +350,14 @@ export class WebCrawler extends EventEmitter {
           }
 
           // 检查是否有 loading 状态的元素
-          const loadingElements = document.querySelectorAll('[data-loading="true"], .loading, .spinner');
+          const loadingElements = document.querySelectorAll('[data-loading="true"], .loading, .spinner, [aria-busy="true"]');
           return loadingElements.length === 0;
         },
         { timeout: 5000 },
       );
     } catch {
-      // 超时不影响继续执行
+      // 超时不影响继续执行，页面可能已经稳定
+      logger.debug('SPA 页面稳定检查超时，继续执行');
     }
   }
 
@@ -413,8 +414,13 @@ export class WebCrawler extends EventEmitter {
    */
   async close(): Promise<void> {
     if (this.browser) {
-      await this.browser.close();
-      this.browser = null;
+      try {
+        await this.browser.close();
+      } catch (error) {
+        logger.warn('关闭爬虫浏览器失败', { error: String(error) });
+      } finally {
+        this.browser = null;
+      }
     }
   }
 

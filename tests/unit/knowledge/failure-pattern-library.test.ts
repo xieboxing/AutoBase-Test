@@ -20,6 +20,13 @@ describe('FailurePatternLibrary', () => {
     // 确保测试目录存在
     await fs.mkdir(path.dirname(TEST_DB_PATH), { recursive: true });
 
+    // 删除旧的测试数据库文件，避免 schema 冲突
+    try {
+      await fs.unlink(TEST_DB_PATH);
+    } catch {
+      // 文件不存在，忽略
+    }
+
     // 初始化测试数据库
     db = await initializeDatabase({ dbPath: TEST_DB_PATH });
     library = createFailurePatternLibrary(db);

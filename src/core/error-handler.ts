@@ -158,10 +158,10 @@ export function setupGlobalErrorHandler(): void {
     } else {
       console.error('❌ 未捕获的异常:', error);
     }
-    // 不立即退出，给日志写入时间
+    // 给日志写入和清理工作足够时间（2秒）
     setTimeout(() => {
       process.exit(1);
-    }, 1000);
+    }, 2000);
   });
 
   // 处理未处理的 Promise 拒绝
@@ -169,24 +169,80 @@ export function setupGlobalErrorHandler(): void {
     console.error('❌ 未处理的 Promise 拒绝:');
     console.error('  原因:', reason);
     console.error('  Promise:', promise);
+    // 记录但不退出，让程序有机会优雅处理
   });
+
+  // 优雅清理函数
+  async function gracefulShutdown(signal: string): Promise<void> {
+    console.log(`\n⏹️ 收到 ${signal}，正在优雅退出...`);
+
+    try {
+      // 尝试清理所有浏览器实例
+      try {
+        const { closeAllBrowsers } = await import('@/testers/web/browser-manager.js');
+        const browserCount = await closeAllBrowsers();
+        if (browserCount > 0) {
+          console.log(`  ✓ 已关闭 ${browserCount} 个浏览器实例`);
+        }
+      } catch {
+        // 浏览器管理器可能未初始化
+      }
+
+      // 尝试清理所有 Appium 会话
+      try {
+        const { closeAllAppiumSessions } = await import('@/testers/app/appium-manager.js');
+        const sessionCount = await closeAllAppiumSessions();
+        if (sessionCount > 0) {
+          console.log(`  ✓ 已关闭 ${sessionCount} 个 Appium 会话`);
+        }
+      } catch {
+        // Appium 管理器可能未初始化
+      }
+
+      // 尝试关闭数据库连接
+      try {
+        const { getDatabase } = await import('@/knowledge/db/index.js');
+        const db = getDatabase();
+        if (db) {
+          db.close();
+          console.log('  ✓ 已关闭数据库连接');
+        }
+      } catch {
+        // 数据库可能未初始化
+      }
+
+      console.log('  ✓ 清理完成，退出');
+      process.exit(0);
+    } catch (error) {
+      console.error('  ✗ 清理过程中出错:', error);
+      process.exit(1);
+    }
+  }
 
   // 处理 SIGTERM
   process.on('SIGTERM', () => {
-    console.log('\n⏹️ 收到 SIGTERM，正在优雅退出...');
-    // 给清理工作时间
-    setTimeout(() => {
-      process.exit(0);
-    }, 5000);
+    // 设置超时保护，防止清理卡住
+    const timeout = setTimeout(() => {
+      console.log('⏹️ 清理超时（8秒），强制退出');
+      process.exit(1);
+    }, 8000);
+
+    gracefulShutdown('SIGTERM').finally(() => {
+      clearTimeout(timeout);
+    });
   });
 
   // 处理 SIGINT (Ctrl+C)
   process.on('SIGINT', () => {
-    console.log('\n⏹️ 收到 SIGINT，正在优雅退出...');
-    // 给清理工作时间
-    setTimeout(() => {
-      process.exit(0);
-    }, 5000);
+    // 设置超时保护，防止清理卡住
+    const timeout = setTimeout(() => {
+      console.log('⏹️ 清理超时（8秒），强制退出');
+      process.exit(1);
+    }, 8000);
+
+    gracefulShutdown('SIGINT').finally(() => {
+      clearTimeout(timeout);
+    });
   });
 }
 

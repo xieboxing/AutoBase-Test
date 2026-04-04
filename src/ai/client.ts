@@ -7,6 +7,14 @@ import type { AiConfig } from '../../config/ai.config.js';
 import { defaultAiConfig } from '../../config/ai.config.js';
 
 /**
+ * Anthropic 消息参数类型（本地定义以匹配 SDK）
+ */
+type AnthropicMessageParam = {
+  role: 'user' | 'assistant';
+  content: string | Array<{ type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'; data: string } }>;
+};
+
+/**
  * AI 客户端配置
  */
 export interface AiClientConfig extends AiConfig {
@@ -37,7 +45,7 @@ export interface ChatContent {
   text?: string;
   source?: {
     type: 'base64';
-    media_type: string;
+    media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
     data: string;
   };
 }
@@ -248,9 +256,9 @@ export class AiClient {
       system: systemMessage?.content as string,
       messages: conversationMessages.map(m => ({
         role: m.role as 'user' | 'assistant',
-        content: this.convertContent(m.content),
-      })),
-    } as any);
+        content: this.convertContentAnthropic(m.content),
+      })) as AnthropicMessageParam[],
+    });
 
     // 提取文本内容
     let content = '';
@@ -291,14 +299,14 @@ export class AiClient {
     // 转换消息格式
     const openaiMessages = messages.map(m => ({
       role: m.role as 'system' | 'user' | 'assistant',
-      content: typeof m.content === 'string' ? m.content : this.convertContentToOpenAI(m.content),
-    }));
+      content: typeof m.content === 'string' ? m.content : this.convertContentOpenAI(m.content),
+    })) as unknown as OpenAI.ChatCompletionMessageParam[];
 
     const response = await this.openaiClient.chat.completions.create({
       model: this.config.model,
       max_tokens: maxTokens,
       temperature,
-      messages: openaiMessages as any,
+      messages: openaiMessages,
       response_format: options.responseFormat === 'json' ? { type: 'json_object' } : undefined,
     });
 
@@ -321,7 +329,7 @@ export class AiClient {
   /**
    * 转换内容格式为 Anthropic 格式
    */
-  private convertContent(content: string | ChatContent[]): Array<{ type: string; text?: string; source?: { type: string; media_type: string; data: string } }> {
+  private convertContentAnthropic(content: string | ChatContent[]): Array<{ type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }> {
     if (typeof content === 'string') {
       return [{ type: 'text', text: content }];
     }
@@ -347,7 +355,7 @@ export class AiClient {
   /**
    * 转换内容格式为 OpenAI 格式
    */
-  private convertContentToOpenAI(content: string | ChatContent[]): Array<{ type: string; text?: string; image_url?: { url: string } }> {
+  private convertContentOpenAI(content: string | ChatContent[]): Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> {
     if (typeof content === 'string') {
       return [{ type: 'text', text: content }];
     }

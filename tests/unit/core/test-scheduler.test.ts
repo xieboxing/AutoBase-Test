@@ -285,10 +285,13 @@ describe('TestScheduler', () => {
 
   describe('稳定用例降频跳过', () => {
     it('连续通过 30 次的稳定用例应该被跳过', () => {
+      // 需要足够多的用例才能触发跳过（maxSkipCount = floor(total * maxSkipRatio)）
       const testCases = [
         createTestCase({ id: 'stable-case', name: '稳定用例' }),
         createTestCase({ id: 'normal-case', name: '普通用例' }),
         createTestCase({ id: 'risky-case', name: '风险用例' }),
+        createTestCase({ id: 'stable-case-2', name: '稳定用例2' }),
+        createTestCase({ id: 'normal-case-2', name: '普通用例2' }),
       ];
 
       const historicalContext = createHistoricalContext([
@@ -314,6 +317,21 @@ describe('TestScheduler', () => {
           consecutiveFailures: 3,
           stabilityScore: 0.2,
         },
+        {
+          caseId: 'stable-case-2',
+          passRate: 1.0,
+          lastResult: 'passed',
+          consecutivePasses: 40,
+          stabilityScore: 0.98,
+          isStable: true,
+        },
+        {
+          caseId: 'normal-case-2',
+          passRate: 0.7,
+          lastResult: 'passed',
+          consecutivePasses: 3,
+          stabilityScore: 0.5,
+        },
       ]);
 
       const options: ScheduleOptions = {
@@ -325,7 +343,7 @@ describe('TestScheduler', () => {
 
       const result = scheduler.schedule(testCases, historicalContext, options);
 
-      // 稳定用例应该被跳过
+      // 稳定用例应该被跳过（至少一个，因为 maxSkipCount = floor(5 * 0.2) = 1）
       expect(result.skippedCases.some(s => s.testCase.id === 'stable-case')).toBe(true);
     });
 

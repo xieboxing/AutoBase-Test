@@ -34,6 +34,11 @@ export type TestType =
 export type Platform = 'pc-web' | 'h5-web' | 'android-app' | 'api' | 'all';
 
 /**
+ * Web 测试平台（不含 'all'）
+ */
+export type WebPlatform = 'pc-web' | 'h5-web';
+
+/**
  * 测试状态
  */
 export type TestStatus = 'passed' | 'failed' | 'skipped' | 'blocked' | 'pending';

@@ -205,8 +205,21 @@ export class LifecycleManager {
   private async closeBrowsers(
     lifecycleLogger: ReturnType<typeof logger.child>,
   ): Promise<void> {
-    // TODO: 实现浏览器关闭逻辑
-    lifecycleLogger.debug('浏览器已关闭');
+    try {
+      // 关闭所有浏览器实例
+      const { getBrowserInstances, closeAllBrowsers } = await import('@/testers/web/browser-manager.js');
+      const instances = getBrowserInstances();
+
+      if (instances.length > 0) {
+        await closeAllBrowsers();
+        lifecycleLogger.debug(`已关闭 ${instances.length} 个浏览器实例`);
+      } else {
+        lifecycleLogger.debug('没有需要关闭的浏览器实例');
+      }
+    } catch (error) {
+      // 如果模块不存在，忽略错误
+      lifecycleLogger.debug('浏览器管理器未初始化或没有打开的浏览器');
+    }
   }
 
   /**
@@ -215,8 +228,21 @@ export class LifecycleManager {
   private async disconnectAppium(
     lifecycleLogger: ReturnType<typeof logger.child>,
   ): Promise<void> {
-    // TODO: 实现 Appium 断开逻辑
-    lifecycleLogger.debug('Appium 连接已断开');
+    try {
+      // 关闭所有 Appium 会话
+      const { getAppiumSessions, closeAllAppiumSessions } = await import('@/testers/app/appium-manager.js');
+      const sessions = getAppiumSessions();
+
+      if (sessions.length > 0) {
+        await closeAllAppiumSessions();
+        lifecycleLogger.debug(`已断开 ${sessions.length} 个 Appium 会话`);
+      } else {
+        lifecycleLogger.debug('没有需要断开的 Appium 会话');
+      }
+    } catch (error) {
+      // 如果模块不存在，忽略错误
+      lifecycleLogger.debug('Appium 管理器未初始化或没有活动的会话');
+    }
   }
 
   /**

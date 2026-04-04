@@ -166,7 +166,12 @@ export class AppPerformanceTester {
     const runId = nanoid(8);
     const startTime = new Date();
 
-    logger.info('🚀 开始 APP 性能测试', { packageName: this.config.packageName!, runId });
+    // 验证必需配置
+    if (!this.config.packageName) {
+      throw new Error('packageName 是必需的配置项');
+    }
+
+    logger.info('🚀 开始 APP 性能测试', { packageName: this.config.packageName, runId });
     eventBus.emit('test:start', { caseId: runId, name: 'app-performance' });
 
     // 确保目录存在
@@ -206,11 +211,17 @@ export class AppPerformanceTester {
       if (lines.length === 0) {
         throw new Error('没有找到连接的设备');
       }
-      const deviceId = lines[0]?.split('\t')[0];
-      if (!deviceId) {
-        throw new Error('无法解析设备 ID');
+      // 解析设备 ID（格式："<device_id>\t<status>"）
+      const firstLine = lines[0];
+      if (!firstLine) {
+        throw new Error('无法解析设备列表：设备行为空');
       }
-      return deviceId;
+      const parts = firstLine.split('\t');
+      const deviceId = parts[0];
+      if (!deviceId || deviceId.trim() === '') {
+        throw new Error(`无法解析设备 ID：设备行格式无效 "${firstLine}"`);
+      }
+      return deviceId.trim();
     } catch (error) {
       throw new Error(`获取设备失败: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -539,8 +550,8 @@ export class AppPerformanceTester {
     let level = 100;
     let temperature = 25;
     let voltage = 4000;
-    let current = 0;
-    let power = 0;
+    const current = 0;
+    const power = 0;
 
     const levelMatch = output.match(/level:\s*(\d+)/);
     if (levelMatch?.[1]) level = parseInt(levelMatch[1], 10);
@@ -581,13 +592,24 @@ export class AppPerformanceTester {
         if (code === 0) {
           resolve(stdout);
         } else {
-          reject(new Error(`ADB command failed: ${stderr || stdout}`));
+          const errorMsg = stderr || stdout || `ADB command exited with code ${code}`;
+          reject(new Error(`ADB command failed: ${errorMsg}`));
         }
       });
 
       proc.on('error', err => {
-        reject(err);
+        reject(new Error(`ADB command error: ${err.message}`));
       });
+
+      // 设置超时
+      setTimeout(() => {
+        try {
+          proc.kill();
+        } catch {
+          // 忽略终止错误
+        }
+        reject(new Error('ADB command timeout'));
+      }, 30000);
     });
   }
 

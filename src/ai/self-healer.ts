@@ -2,7 +2,7 @@ import type { PageSnapshot, InteractiveElement } from '@/types/crawler.types.js'
 import { AiClient, getAiClient } from './client.js';
 import { logger } from '@/core/logger.js';
 import { nanoid } from 'nanoid';
-import { getDatabase, type KnowledgeDatabase } from '@/knowledge/db/index.js';
+import { getDatabase, isDatabaseInitialized, type KnowledgeDatabase } from '@/knowledge/db/index.js';
 import { createRagMemoryEngine } from '@/knowledge/rag-memory.js';
 import type { RagMemoryEngine } from '@/knowledge/rag-memory.js';
 import type { RagRetrievalResult } from '@/types/rag.types.js';
@@ -106,7 +106,10 @@ export class SelfHealer {
     if (this.config.persistenceEnabled && this.config.project && this.config.platform) {
       try {
         this.db = getDatabase();
-        await this.db.initialize();
+        // 仅在数据库未初始化时才初始化
+        if (!isDatabaseInitialized()) {
+          await this.db.initialize();
+        }
         await this.loadFromDatabase();
 
         // 初始化 RAG 记忆引擎

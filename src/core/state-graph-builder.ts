@@ -160,7 +160,7 @@ export class StateGraphBuilder {
    */
   private extractDomSummary(html: string): string {
     // 移除动态内容和空白
-    let summary = html
+    const summary = html
       .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
       .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
       .replace(/data-[a-z-]+="[^"]*"/gi, 'data-[removed]')

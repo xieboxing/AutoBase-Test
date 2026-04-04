@@ -195,7 +195,8 @@ parentPort?.on('message', async (message: {
       break;
 
     case 'shutdown':
-      // 清理并退出
+      // 清理心跳interval后再退出，避免僵尸进程
+      clearInterval(heartbeatInterval);
       process.exit(0);
       break;
 
@@ -204,8 +205,8 @@ parentPort?.on('message', async (message: {
   }
 });
 
-// 启动心跳
-setInterval(sendHeartbeat, 5000);
+// 启动心跳（保存interval引用以便清理）
+const heartbeatInterval = setInterval(sendHeartbeat, 5000);
 
 // 发送就绪信号
 sendReady();

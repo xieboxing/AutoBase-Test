@@ -204,10 +204,19 @@ describe('BusinessFlowAnalyzer', () => {
       expect(mockAiClient.chatWithRetry).toHaveBeenCalled();
     });
 
-    it('should handle analysis errors gracefully', async () => {
+    it('should fallback to rule engine when AI fails', async () => {
       mockAiClient.chatWithRetry.mockRejectedValueOnce(new Error('AI error'));
 
-      await expect(analyzer.analyzePage(mockSnapshot)).rejects.toThrow('AI error');
+      // When AI fails, analyzer should fallback to rule engine instead of throwing
+      const result = await analyzer.analyzePage(mockSnapshot);
+
+      // Rule engine should detect login form and return analysis
+      expect(result).toBeDefined();
+      expect(result.pageName).toBe('登录页面');
+      expect(result.pagePurpose).toBeDefined();
+      expect(result.potentialFlows).toBeDefined();
+      // Rule engine detects login flow
+      expect(result.potentialFlows.length).toBeGreaterThan(0);
     });
   });
 

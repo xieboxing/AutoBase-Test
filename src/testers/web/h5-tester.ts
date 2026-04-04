@@ -48,8 +48,8 @@ export class H5Tester extends PcTester {
 
   constructor(config: Partial<H5TesterConfig> = {}) {
     // 不传递 viewport，因为由设备决定
-    const { viewport, ...pcConfig } = config as any;
-    super(pcConfig);
+    const { viewport: _viewport, ...pcConfig } = config as Omit<H5TesterConfig, 'viewport'> & { viewport?: unknown };
+    super(pcConfig as Partial<PcTesterConfig>);
     this.h5Config = { ...DEFAULT_H5_TESTER_CONFIG, ...config };
   }
 
@@ -179,7 +179,10 @@ export class H5Tester extends PcTester {
     logger.step(`👋 滑动: ${direction || 'up'}`);
 
     const viewport = this.page.viewportSize();
-    if (!viewport) return;
+    if (!viewport) {
+      logger.warn('⚠️ 无法获取视口尺寸，跳过滑动操作');
+      return;
+    }
 
     let startX = viewport.width / 2;
     let startY = viewport.height / 2;

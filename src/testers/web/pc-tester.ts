@@ -8,6 +8,7 @@ import { nanoid } from 'nanoid';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { VisualRegressionManager } from '@/testers/visual/visual-regression-manager.js';
+import { registerBrowser, registerContext, closeBrowser } from './browser-manager.js';
 
 /**
  * 浏览器类型
@@ -61,6 +62,7 @@ export class PcTester {
   protected context: BrowserContext | null = null;
   protected page: Page | null = null;
   protected visualRegressionManager: VisualRegressionManager | null = null;
+  protected browserId: string | null = null;
 
   constructor(config: Partial<PcTesterConfig> = {}) {
     this.config = { ...DEFAULT_PC_TESTER_CONFIG, ...config };
@@ -82,12 +84,20 @@ export class PcTester {
       slowMo: this.config.slowMo,
     });
 
+    // 注册到浏览器管理器，确保资源能被正确清理
+    this.browserId = registerBrowser(this.browser);
+
     this.context = await this.browser.newContext({
       viewport: this.config.viewport,
       recordVideo: this.config.videoOnFailure
         ? { dir: this.config.artifactsDir }
         : undefined,
     });
+
+    // 注册上下文到管理器
+    if (this.browserId) {
+      registerContext(this.browserId, this.context);
+    }
 
     this.page = await this.context.newPage();
 
@@ -114,7 +124,7 @@ export class PcTester {
   /**
    * 执行测试用例
    */
-  async runTest(testCase: TestCase): Promise<TestCaseResult> {
+  async runTest(testCase: TestCase, maxRetries: number = 0): Promise<TestCaseResult> {
     const runId = nanoid(8);
     const startTime = new Date();
     const stepResults: TestStepResult[] = [];
@@ -129,73 +139,109 @@ export class PcTester {
     // 发送测试开始事件
     eventBus.emit('test:start', { caseId: testCase.id, name: testCase.name });
 
-    try {
-      // 确保浏览器已初始化
-      if (!this.page) {
-        await this.initialize();
-      }
-
-      // 执行每个步骤
-      for (const step of testCase.steps) {
-        const stepResult = await this.executeStep(step, testCase.id, runId);
-        stepResults.push(stepResult);
-
-        if (stepResult.screenshot) {
-          screenshots.push(stepResult.screenshot);
+    // 重试循环
+    while (true) {
+      try {
+        // 确保浏览器已初始化
+        if (!this.page) {
+          await this.initialize();
         }
 
-        if (stepResult.status === 'failed') {
-          status = 'failed';
-          logger.fail(`❌ 步骤 ${step.order} 失败: ${stepResult.errorMessage}`);
+        // 清空之前的步骤结果（重试时）
+        stepResults.length = 0;
+        screenshots.length = 0;
+        logs.length = 0;
+        status = 'passed';
 
-          // 发送步骤失败事件
-          eventBus.emit('test:step', {
-            caseId: testCase.id,
-            step: step.order,
-            status: 'failed',
-            error: stepResult.errorMessage,
-          });
+        // 执行每个步骤
+        for (const step of testCase.steps) {
+          const stepResult = await this.executeStep(step, testCase.id, runId);
+          stepResults.push(stepResult);
 
-          // 步骤失败后停止执行
+          if (stepResult.screenshot) {
+            screenshots.push(stepResult.screenshot);
+          }
+
+          if (stepResult.status === 'failed') {
+            status = 'failed';
+            logger.fail(`❌ 步骤 ${step.order} 失败: ${stepResult.errorMessage}`);
+
+            // 发送步骤失败事件
+            eventBus.emit('test:step', {
+              caseId: testCase.id,
+              step: step.order,
+              status: 'failed',
+              error: stepResult.errorMessage,
+            });
+
+            // 步骤失败后停止执行
+            break;
+          } else {
+            logger.pass(`✅ 步骤 ${step.order} 通过: ${step.description}`);
+            eventBus.emit('test:step', {
+              caseId: testCase.id,
+              step: step.order,
+              status: 'passed',
+            });
+          }
+        }
+
+        // 如果通过或达到最大重试次数，退出循环
+        if (status === 'passed' || retryCount >= maxRetries) {
           break;
-        } else {
-          logger.pass(`✅ 步骤 ${step.order} 通过: ${step.description}`);
-          eventBus.emit('test:step', {
-            caseId: testCase.id,
-            step: step.order,
-            status: 'passed',
-          });
         }
-      }
 
-      // 执行清理步骤
-      if (testCase.cleanup && status === 'passed') {
-        for (const step of testCase.cleanup) {
+        // 准备重试
+        retryCount++;
+        logger.warn(`⚠️ 测试失败，准备重试 (${retryCount}/${maxRetries})`, { caseId: testCase.id });
+
+        // 重试前等待一段时间
+        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+
+      } catch (error) {
+        status = 'failed';
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logs.push(errorMessage);
+        logger.fail('❌ 测试用例执行出错', { error: errorMessage });
+
+        // 如果达到最大重试次数，退出循环
+        if (retryCount >= maxRetries) {
+          break;
+        }
+
+        // 准备重试
+        retryCount++;
+        logger.warn(`⚠️ 测试出错，准备重试 (${retryCount}/${maxRetries})`, { caseId: testCase.id });
+        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+      }
+    }
+
+    // 执行清理步骤（无论测试是否通过）
+    if (testCase.cleanup) {
+      for (const step of testCase.cleanup) {
+        try {
           const stepResult = await this.executeStep(step, testCase.id, runId);
           // 清理步骤失败不影响测试结果
           if (stepResult.status === 'failed') {
             logger.warn(`⚠️ 清理步骤 ${step.order} 失败: ${stepResult.errorMessage}`);
           }
+        } catch (error) {
+          logger.warn(`⚠️ 清理步骤 ${step.order} 执行出错: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
-    } catch (error) {
-      status = 'failed';
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logs.push(errorMessage);
-      logger.fail('❌ 测试用例执行出错', { error: errorMessage });
     }
 
     const endTime = new Date();
 
-    // 保存视频
-    if (this.config.videoOnFailure && this.context) {
+    // 保存视频（必须在关闭 context 前获取路径）
+    if (this.config.videoOnFailure && this.page) {
       try {
-        videoPath = await this.context.close().then(() => {
-          // 视频路径需要从 context 获取
-          return undefined;
-        });
+        const video = this.page.video();
+        if (video) {
+          videoPath = await video.path();
+        }
       } catch {
-        // 忽略视频保存错误
+        // 忽略视频路径获取错误
       }
     }
 
@@ -433,38 +479,46 @@ export class PcTester {
   }
 
   /**
-   * 点击元素
+   * 点击元素（带显式等待）
    */
   protected async click(selector: string, timeout: number): Promise<void> {
     if (!this.page) return;
     logger.step(`👆 点击: ${selector}`);
+    // 显式等待元素可见且可点击
+    await this.page.waitForSelector(selector, { state: 'visible', timeout });
     await this.page.click(selector, { timeout });
   }
 
   /**
-   * 填写输入框
+   * 填写输入框（带显式等待）
    */
   protected async fill(selector: string, value: string, timeout: number): Promise<void> {
     if (!this.page) return;
     logger.step(`⌨️ 填写: ${selector} = "${value.slice(0, 50)}"`);
+    // 显式等待元素可见
+    await this.page.waitForSelector(selector, { state: 'visible', timeout });
     await this.page.fill(selector, value, { timeout });
   }
 
   /**
-   * 选择下拉选项
+   * 选择下拉选项（带显式等待）
    */
   protected async select(selector: string, value: string, timeout: number): Promise<void> {
     if (!this.page) return;
     logger.step(`📋 选择: ${selector} = "${value}"`);
+    // 显式等待元素可见
+    await this.page.waitForSelector(selector, { state: 'visible', timeout });
     await this.page.selectOption(selector, value, { timeout });
   }
 
   /**
-   * 悬停
+   * 悬停（带显式等待）
    */
   protected async hover(selector: string, timeout: number): Promise<void> {
     if (!this.page) return;
     logger.step(`🖱️ 悬停: ${selector}`);
+    // 显式等待元素可见
+    await this.page.waitForSelector(selector, { state: 'visible', timeout });
     await this.page.hover(selector, { timeout });
   }
 
@@ -515,54 +569,56 @@ export class PcTester {
 
     logger.step(`🔍 断言: ${assertType} on ${selector}`);
 
+    const assertTimeout = timeout ?? this.config.timeout;
+
     switch (assertType) {
       case 'element-visible':
-        await this.page.locator(selector).waitFor({ state: 'visible', timeout });
+        await this.page.locator(selector).waitFor({ state: 'visible', timeout: assertTimeout });
         break;
 
       case 'element-hidden':
-        await this.page.locator(selector).waitFor({ state: 'hidden', timeout });
+        await this.page.locator(selector).waitFor({ state: 'hidden', timeout: assertTimeout });
         break;
 
       case 'text-contains':
-        await this.page.locator(selector).waitFor({ state: 'visible', timeout });
+        await this.page.locator(selector).waitFor({ state: 'visible', timeout: assertTimeout });
         const textContent = await this.page.locator(selector).textContent();
         if (!textContent?.includes(value || '')) {
-          throw new Error(`Text "${value}" not found in element`);
+          throw new Error(`断言失败: 元素文本 "${textContent}" 不包含 "${value}"`);
         }
         break;
 
       case 'text-equals':
-        await this.page.locator(selector).waitFor({ state: 'visible', timeout });
+        await this.page.locator(selector).waitFor({ state: 'visible', timeout: assertTimeout });
         const text = await this.page.locator(selector).textContent();
         if (text !== value) {
-          throw new Error(`Text "${text}" does not equal "${value}"`);
+          throw new Error(`断言失败: 元素文本 "${text}" 不等于 "${value}"`);
         }
         break;
 
       case 'url-contains':
         if (!this.page.url().includes(value || '')) {
-          throw new Error(`URL "${this.page.url()}" does not contain "${value}"`);
+          throw new Error(`断言失败: URL "${this.page.url()}" 不包含 "${value}"`);
         }
         break;
 
       case 'url-equals':
         if (this.page.url() !== value) {
-          throw new Error(`URL "${this.page.url()}" does not equal "${value}"`);
+          throw new Error(`断言失败: URL "${this.page.url()}" 不等于 "${value}"`);
         }
         break;
 
       case 'title-contains':
         const title = await this.page.title();
         if (!title.includes(value || '')) {
-          throw new Error(`Title "${title}" does not contain "${value}"`);
+          throw new Error(`断言失败: 页面标题 "${title}" 不包含 "${value}"`);
         }
         break;
 
       case 'title-equals':
         const pageTitle = await this.page.title();
         if (pageTitle !== value) {
-          throw new Error(`Title "${pageTitle}" does not equal "${value}"`);
+          throw new Error(`断言失败: 页面标题 "${pageTitle}" 不等于 "${value}"`);
         }
         break;
 
@@ -570,47 +626,49 @@ export class PcTester {
         const count = await this.page.locator(selector).count();
         const expectedCount = parseInt(value || '0', 10);
         if (count !== expectedCount) {
-          throw new Error(`Element count ${count} does not equal ${expectedCount}`);
+          throw new Error(`断言失败: 元素数量 ${count} 不等于 ${expectedCount}`);
         }
         break;
 
       case 'attribute-equals':
-        const attrValue = await this.page.locator(selector).getAttribute(value?.split('=')[0] || '');
-        if (attrValue !== value?.split('=')[1]) {
-          throw new Error(`Attribute value "${attrValue}" does not equal "${value?.split('=')[1]}"`);
+        const attrName = value?.split('=')[0] || '';
+        const expectedAttrValue = value?.split('=')[1] || '';
+        const attrValue = await this.page.locator(selector).getAttribute(attrName);
+        if (attrValue !== expectedAttrValue) {
+          throw new Error(`断言失败: 属性值 "${attrValue}" 不等于 "${expectedAttrValue}"`);
         }
         break;
 
       case 'value-equals':
         const inputValue = await this.page.locator(selector).inputValue();
         if (inputValue !== value) {
-          throw new Error(`Input value "${inputValue}" does not equal "${value}"`);
+          throw new Error(`断言失败: 输入值 "${inputValue}" 不等于 "${value}"`);
         }
         break;
 
       case 'checked':
         const isChecked = await this.page.locator(selector).isChecked();
         if (!isChecked) {
-          throw new Error(`Element ${selector} is not checked`);
+          throw new Error(`断言失败: 元素 ${selector} 未被选中`);
         }
         break;
 
       case 'disabled':
         const isDisabled = await this.page.locator(selector).isDisabled();
         if (!isDisabled) {
-          throw new Error(`Element ${selector} is not disabled`);
+          throw new Error(`断言失败: 元素 ${selector} 未被禁用`);
         }
         break;
 
       case 'enabled':
         const isEnabled = await this.page.locator(selector).isEnabled();
         if (!isEnabled) {
-          throw new Error(`Element ${selector} is not enabled`);
+          throw new Error(`断言失败: 元素 ${selector} 未启用`);
         }
         break;
 
       default:
-        throw new Error(`Unknown assert type: ${assertType}`);
+        throw new Error(`未知的断言类型: ${assertType}`);
     }
   }
 
@@ -660,25 +718,72 @@ export class PcTester {
   }
 
   /**
-   * 关闭浏览器
+   * 关闭浏览器（带超时保护）
    */
   async close(): Promise<void> {
+    const closeLogger = logger.child({ component: 'PcTester' });
+    const timeout = 180000; // 3分钟超时
+
+    // 关闭页面
     if (this.page) {
-      await this.page.close();
+      try {
+        await Promise.race([
+          this.page.close(),
+          new Promise<void>((_, reject) => setTimeout(() => reject(new Error('关闭页面超时')), timeout / 3))
+        ]);
+      } catch (error) {
+        closeLogger.warn('关闭页面失败', { error: String(error) });
+      }
       this.page = null;
     }
 
+    // 关闭上下文
     if (this.context) {
-      await this.context.close();
+      try {
+        await Promise.race([
+          this.context.close(),
+          new Promise<void>((_, reject) => setTimeout(() => reject(new Error('关闭上下文超时')), timeout / 3))
+        ]);
+      } catch (error) {
+        closeLogger.warn('关闭浏览器上下文失败', { error: String(error) });
+      }
       this.context = null;
     }
 
+    // 关闭浏览器
     if (this.browser) {
-      await this.browser.close();
+      try {
+        await Promise.race([
+          this.browser.close(),
+          new Promise<void>((_, reject) => setTimeout(() => reject(new Error('关闭浏览器超时')), timeout / 3))
+        ]);
+      } catch (error) {
+        closeLogger.warn('关闭浏览器失败', { error: String(error) });
+      }
       this.browser = null;
     }
 
-    logger.info('🔚 浏览器已关闭');
+    // 从管理器注销（如果已注册）
+    if (this.browserId) {
+      try {
+        closeBrowser(this.browserId);
+      } catch {
+        // 忽略注销错误
+      }
+      this.browserId = null;
+    }
+
+    // 关闭视觉回归管理器
+    if (this.visualRegressionManager) {
+      try {
+        await this.visualRegressionManager.close?.();
+      } catch {
+        // 忽略关闭错误
+      }
+      this.visualRegressionManager = null;
+    }
+
+    closeLogger.info('🔚 浏览器已关闭');
   }
 }
 

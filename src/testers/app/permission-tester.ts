@@ -2,6 +2,7 @@ import type { RemoteOptions } from 'webdriverio';
 import { remote } from 'webdriverio';
 import { logger } from '@/core/logger.js';
 import { deviceManager } from '@/utils/device.js';
+import { SmartWait } from '@/utils/smart-wait.js';
 
 /**
  * 权限测试配置
@@ -14,7 +15,25 @@ export interface PermissionTesterConfig {
   appiumPort: number;
   automationTimeout: number;
   artifactsDir: string;
+  /** 等待配置 */
+  waitConfig?: {
+    /** 应用启动等待超时 */
+    appLaunchTimeout?: number;
+    /** 权限弹窗等待超时 */
+    dialogTimeout?: number;
+    /** 操作后稳定等待 */
+    settleTime?: number;
+  };
 }
+
+/**
+ * 默认等待配置
+ */
+const DEFAULT_WAIT_CONFIG = {
+  appLaunchTimeout: 10000,
+  dialogTimeout: 5000,
+  settleTime: 500,
+};
 
 /**
  * 权限测试结果
@@ -33,6 +52,8 @@ export interface PermissionTestResult {
 export class PermissionTester {
   protected config: PermissionTesterConfig;
   protected driver: WebdriverIO.Browser | null = null;
+  protected smartWait: SmartWait;
+  protected waitConfig: Required<NonNullable<PermissionTesterConfig['waitConfig']>>;
 
   constructor(config: Partial<PermissionTesterConfig>) {
     this.config = {
@@ -44,6 +65,8 @@ export class PermissionTester {
       artifactsDir: './data/screenshots',
       ...config,
     };
+    this.waitConfig = { ...DEFAULT_WAIT_CONFIG, ...config.waitConfig };
+    this.smartWait = new SmartWait({ defaultTimeout: this.config.automationTimeout });
   }
 
   /**
@@ -163,17 +186,25 @@ export class PermissionTester {
         this.config.mainActivity,
       );
 
-      await this.sleep(2000);
+      // 智能等待应用启动完成（替代硬等待）
+      await this.smartWait.waitForAppLaunch(
+        this.config.deviceId,
+        this.config.packageName,
+        (deviceId, cmd) => deviceManager.shell(deviceId, cmd),
+        this.waitConfig.appLaunchTimeout
+      );
 
-      // 尝试点击允许按钮（如果有权限弹窗）
-      try {
-        const allowButton = await this.driver!.$('//android.widget.Button[@text="Allow" or @text="允许" or @text="ALLOW"]');
-        if (allowButton && (await allowButton.isDisplayed())) {
-          await allowButton.click();
-          await this.sleep(1000);
-        }
-      } catch {
-        // 没有弹窗，可能权限已经被授予或不需要
+      // 智能等待并处理权限弹窗（替代硬等待）
+      const dialogHandled = await this.smartWait.handlePermissionDialog(
+        this.driver!,
+        'allow',
+        this.waitConfig.dialogTimeout
+      );
+
+      if (dialogHandled) {
+        logger.pass('✅ 检测到权限弹窗并已处理');
+      } else {
+        logger.debug('未检测到权限弹窗，可能权限已授予或不需要');
       }
 
       logger.pass('✅ 权限允许测试通过');
@@ -219,30 +250,40 @@ export class PermissionTester {
         this.config.mainActivity,
       );
 
-      await this.sleep(2000);
+      // 智能等待应用启动完成
+      await this.smartWait.waitForAppLaunch(
+        this.config.deviceId,
+        this.config.packageName,
+        (deviceId, cmd) => deviceManager.shell(deviceId, cmd),
+        this.waitConfig.appLaunchTimeout
+      );
 
-      // 尝试点击拒绝按钮
-      try {
-        const denyButton = await this.driver!.$('//android.widget.Button[@text="Deny" or @text="拒绝" or @text="DENY"]');
-        if (denyButton && (await denyButton.isDisplayed())) {
-          await denyButton.click();
-          await this.sleep(1000);
-        }
-      } catch {
-        // 没有弹窗
-      }
+      // 智能等待并处理权限弹窗（拒绝）
+      await this.smartWait.handlePermissionDialog(
+        this.driver!,
+        'deny',
+        this.waitConfig.dialogTimeout
+      );
 
       // 检查应用是否有友好提示
       let appBehavior = 'App continued without permission';
 
-      try {
-        // 检查是否有权限相关的错误提示
-        const errorMessage = await this.driver!.$('//*[contains(@text, "permission") or contains(@text, "权限")]');
-        if (errorMessage && (await errorMessage.isDisplayed())) {
-          appBehavior = 'App shows permission explanation';
-        }
-      } catch {
-        // 没有错误提示
+      // 智能等待权限相关提示出现
+      const hasPermissionHint = await this.smartWait.waitFor(
+        async () => {
+          try {
+            const errorMessage = await this.driver!.$('//*[contains(@text, "permission") or contains(@text, "权限")]');
+            return await errorMessage.isDisplayed();
+          } catch {
+            return false;
+          }
+        },
+        2000,
+        'permission hint'
+      );
+
+      if (hasPermissionHint) {
+        appBehavior = 'App shows permission explanation';
       }
 
       logger.pass('✅ 权限拒绝测试通过');
@@ -288,23 +329,35 @@ export class PermissionTester {
         this.config.mainActivity,
       );
 
-      await this.sleep(2000);
+      // 智能等待应用启动完成
+      await this.smartWait.waitForAppLaunch(
+        this.config.deviceId,
+        this.config.packageName,
+        (deviceId, cmd) => deviceManager.shell(deviceId, cmd),
+        this.waitConfig.appLaunchTimeout
+      );
 
       // 尝试勾选 "不再询问" 并拒绝
-      try {
-        const neverAskCheckbox = await this.driver!.$('//android.widget.CheckBox[@text="Don\'t ask again" or @text="不再询问"]');
-        if (neverAskCheckbox && (await neverAskCheckbox.isDisplayed())) {
-          await neverAskCheckbox.click();
-          await this.sleep(500);
-        }
+      const checkboxFound = await this.smartWait.waitFor(
+        async () => {
+          try {
+            const neverAskCheckbox = await this.driver!.$('//android.widget.CheckBox[@text="Don\'t ask again" or @text="不再询问"]');
+            if (await neverAskCheckbox.isDisplayed()) {
+              await neverAskCheckbox.click();
+              return true;
+            }
+            return false;
+          } catch {
+            return false;
+          }
+        },
+        this.waitConfig.dialogTimeout,
+        '"不再询问" 复选框'
+      );
 
-        const denyButton = await this.driver!.$('//android.widget.Button[@text="Deny" or @text="拒绝"]');
-        if (denyButton && (await denyButton.isDisplayed())) {
-          await denyButton.click();
-          await this.sleep(1000);
-        }
-      } catch {
-        // 没有弹窗
+      if (checkboxFound) {
+        // 等待并点击拒绝按钮
+        await this.smartWait.handlePermissionDialog(this.driver!, 'deny', 2000);
       }
 
       logger.pass('✅ "不再询问" 测试通过');
@@ -343,18 +396,32 @@ export class PermissionTester {
         this.config.mainActivity,
       );
 
-      await this.sleep(2000);
+      // 智能等待应用启动完成
+      await this.smartWait.waitForAppLaunch(
+        this.config.deviceId,
+        this.config.packageName,
+        (deviceId, cmd) => deviceManager.shell(deviceId, cmd),
+        this.waitConfig.appLaunchTimeout
+      );
 
       // 检查应用是否有引导用户去设置的提示
       let appBehavior = 'App continued without permission';
 
-      try {
-        const settingsPrompt = await this.driver!.$('//*[contains(@text, "Settings") or contains(@text, "设置")]');
-        if (settingsPrompt && (await settingsPrompt.isDisplayed())) {
-          appBehavior = 'App prompts user to enable permission in settings';
-        }
-      } catch {
-        // 没有提示
+      const hasSettingsPrompt = await this.smartWait.waitFor(
+        async () => {
+          try {
+            const settingsPrompt = await this.driver!.$('//*[contains(@text, "Settings") or contains(@text, "设置")]');
+            return await settingsPrompt.isDisplayed();
+          } catch {
+            return false;
+          }
+        },
+        2000,
+        'settings prompt'
+      );
+
+      if (hasSettingsPrompt) {
+        appBehavior = 'App prompts user to enable permission in settings';
       }
 
       logger.pass('✅ 系统设置关闭权限测试通过');

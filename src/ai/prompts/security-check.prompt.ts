@@ -261,11 +261,11 @@ export const XSS_VECTORS = [
  * 敏感信息正则
  */
 export const SENSITIVE_PATTERNS = [
-  { type: 'API Key', pattern: /(?:api[_-]?key|apikey)['":\s]*['"]?([a-zA-Z0-9_\-]{20,})['"]?/gi },
+  { type: 'API Key', pattern: /(?:api[_-]?key|apikey)['":\s]*['"]?([a-zA-Z0-9_-]{20,})['"]?/gi },
   { type: 'AWS Key', pattern: /AKIA[0-9A-Z]{16}/g },
   { type: 'Private Key', pattern: /-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----/g },
   { type: 'Password', pattern: /(?:password|passwd|pwd)['":\s]*['"]?([^'"\s]{4,})['"]?/gi },
-  { type: 'Token', pattern: /(?:token|bearer)['":\s]*['"]?([a-zA-Z0-9_\-\.]{20,})['"]?/gi },
+  { type: 'Token', pattern: /(?:token|bearer)['":\s]*['"]?([a-zA-Z0-9_.-]{20,})['"]?/gi },
   { type: 'Email', pattern: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g },
   { type: 'Phone', pattern: /(?:\+?86)?1[3-9]\d{9}/g },
 ];

@@ -262,8 +262,8 @@ async function executeAppTest(apkPath: string | undefined, options: AppCommandOp
       const launchResult = await deviceManager.launchApp(deviceId, packageName, mainActivity || undefined);
       const launchDuration = Date.now() - launchStart;
 
-      // 等待应用完全启动
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // 等待应用完全启动（使用配置的超时）
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
       // 截图
       let screenshotPath = '';
@@ -318,16 +318,17 @@ async function executeAppTest(apkPath: string | undefined, options: AppCommandOp
         try {
           // 初始化 Appium 驱动
           driver = await remote({
-            protocol: 'webdriver' as any,
-            hostname: '127.0.0.1',
-            port: 4723,
-            path: '/',
+            hostname: process.env.APPIUM_HOST || '127.0.0.1',
+            port: parseInt(process.env.APPIUM_PORT || '4723', 10),
+            path: '/wd/hub',
             capabilities: {
               platformName: 'Android',
               'appium:deviceName': deviceId,
-              'appium:packageName': packageName,
+              'appium:appPackage': packageName,
               'appium:appActivity': mainActivity || '.MainActivity',
               'appium:automationName': 'UiAutomator2',
+              'appium:noReset': true,
+              'appium:newCommandTimeout': 300,
             } as any,
           });
 

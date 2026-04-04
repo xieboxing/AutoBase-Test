@@ -232,8 +232,13 @@ export class InstallTester {
     }
 
     // 卸载测试后重新安装，以便后续测试
-    if (!result.install.success) {
-      await deviceManager.installApk(this.config.deviceId, this.config.apkPath);
+    // 只有当卸载成功且安装也成功时才需要重新安装
+    if (uninstallResult.success && result.install.success) {
+      logger.step('🔄 卸载测试后重新安装应用，以便后续测试');
+      const reinstallResult = await deviceManager.installApk(this.config.deviceId, this.config.apkPath);
+      if (!reinstallResult.success) {
+        result.issues.push(`卸载后重装失败: ${reinstallResult.message}`);
+      }
     }
   }
 

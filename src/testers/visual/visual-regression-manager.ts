@@ -301,7 +301,7 @@ export class VisualRegressionManager {
         const g1 = baselineImg.data[idx + 1] ?? 0;
         const b1 = baselineImg.data[idx + 2] ?? 0;
         const r2 = currentImg.data[idx] ?? 0;
-        const g2 = currentImg.data[idx + 2] ?? 0;
+        const g2 = currentImg.data[idx + 1] ?? 0;
         const b2 = currentImg.data[idx + 2] ?? 0;
 
         // 计算颜色差异
@@ -764,8 +764,13 @@ export class VisualRegressionManager {
    * 加载 PNG 图片
    */
   private async loadPng(filePath: string): Promise<PNG> {
-    const buffer = await fs.readFile(filePath);
-    return PNG.sync.read(buffer);
+    try {
+      const buffer = await fs.readFile(filePath);
+      return PNG.sync.read(buffer);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      throw new Error(`加载图片失败: ${filePath} - ${errorMsg}`);
+    }
   }
 
   /**
@@ -890,6 +895,14 @@ export class VisualRegressionManager {
     }
 
     return merged;
+  }
+
+  /**
+   * 关闭管理器（释放资源）
+   */
+  async close(): Promise<void> {
+    // 清理数据库引用
+    this.db = null;
   }
 }
 

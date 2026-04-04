@@ -6,6 +6,7 @@
 
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 
 // 类型定义
 export interface DatabaseAdapter {
@@ -198,8 +199,16 @@ class SqlJsAdapter implements DatabaseAdapter {
 
   close(): void {
     if (this.open) {
-      // 保存数据库到文件
-      this._saveToFile();
+      // 同步保存数据库到文件（sql.js 需要在关闭前保存）
+      try {
+        const data = this.db.export();
+        const buffer = Buffer.from(data);
+        // 使用同步写入确保数据保存完成
+        fsSync.writeFileSync(this.dbPath, buffer);
+      } catch (error) {
+        // 忽略保存错误，但记录日志
+        console.warn(`保存数据库文件失败: ${error instanceof Error ? error.message : String(error)}`);
+      }
       this.db.close();
       this.open = false;
     }
@@ -207,16 +216,6 @@ class SqlJsAdapter implements DatabaseAdapter {
 
   isOpen(): boolean {
     return this.open;
-  }
-
-  private async _saveToFile(): Promise<void> {
-    try {
-      const data = this.db.export();
-      const buffer = Buffer.from(data);
-      await fs.writeFile(this.dbPath, buffer);
-    } catch {
-      // 忽略保存错误
-    }
   }
 }
 

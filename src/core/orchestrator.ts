@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { TestCase, Platform, TestType, TestStatus } from '@/types/index.js';
+import type { TestCase, Platform, TestType, TestStatus, TestActionType, WebPlatform } from '@/types/index.js';
 import type { TestRunResult, TestCaseResult, TestEnvironment } from '@/types/test-result.types.js';
 import type { GlobalConfig } from '../../config/index.js';
 import type { PageSnapshot } from '@/types/crawler.types.js';
@@ -26,9 +26,8 @@ import { createRagMemoryEngine, type RagMemoryEngine } from '@/knowledge/rag-mem
 import { StateGraphBuilder, createStateGraphBuilder } from './state-graph-builder.js';
 import { BusinessFlowAnalyzer, createBusinessFlowAnalyzer } from '@/ai/business-flow-analyzer.js';
 import type { RagMemoryType } from '@/types/rag.types.js';
-import type { TestActionType } from '@/types/test-case.types.js';
 import { nanoid } from 'nanoid';
-import { chromium, type Browser } from 'playwright';
+import { chromium, type Browser, type BrowserContext } from 'playwright';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import crypto from 'node:crypto';
@@ -316,6 +315,14 @@ export class Orchestrator extends EventEmitter {
       ],
     });
 
+    // 注册到浏览器管理器，确保资源能被正确清理
+    try {
+      const { registerBrowser } = await import('@/testers/web/browser-manager.js');
+      registerBrowser(this.browser);
+    } catch {
+      // 忽略导入错误，浏览器管理器可能未初始化
+    }
+
     testLogger.pass('✅ 环境初始化完成');
   }
 
@@ -441,12 +448,13 @@ export class Orchestrator extends EventEmitter {
       }));
 
       // 调用优化器
+      const totalResults = this.results.length || 1; // 防止除以零
       const optimizationResult = await this.flowOptimizer.optimize({
         projectName: this.projectName,
         totalCases: this.results.length,
         historyData,
-        recentPassRate: this.results.filter(r => r.status === 'passed').length / this.results.length,
-        avgDuration: this.results.reduce((sum, r) => sum + r.durationMs, 0) / this.results.length,
+        recentPassRate: this.results.filter(r => r.status === 'passed').length / totalResults,
+        avgDuration: this.results.reduce((sum, r) => sum + r.durationMs, 0) / totalResults,
       });
 
       // 保存高置信度的优化建议（带运行前状态）
@@ -633,10 +641,11 @@ export class Orchestrator extends EventEmitter {
         const pagesToSnapshot = crawlResult.pages.slice(0, 5);
 
         for (const crawledPage of pagesToSnapshot) {
+          let context: BrowserContext | null = null;
           try {
             testLogger.step(`📸 生成页面快照`, { url: crawledPage.url });
 
-            const context = await this.browser.newContext({
+            context = await this.browser.newContext({
               viewport: { width: 1920, height: 1080 },
             });
             const page = await context.newPage();
@@ -663,11 +672,11 @@ export class Orchestrator extends EventEmitter {
 
             // 记录状态节点
             if (this.stateGraphBuilder) {
-              const platformKey = this.platform === 'h5' ? 'h5-web' : 'pc-web';
+              const platformKey: WebPlatform = this.platform === 'h5' ? 'h5-web' : 'pc-web';
               const stateNode = this.stateGraphBuilder.recordState(
                 snapshot,
                 this.projectName,
-                platformKey as any
+                platformKey
               );
               this.currentStateHash = stateNode.stateHash;
               testLogger.debug('📍 状态节点已记录', {
@@ -675,10 +684,17 @@ export class Orchestrator extends EventEmitter {
                 stateName: stateNode.stateName,
               });
             }
-
-            await context.close();
           } catch (error) {
             testLogger.warn('快照生成失败', { url: crawledPage.url, error: String(error) });
+          } finally {
+            // 确保 context 被关闭，防止资源泄漏
+            if (context) {
+              try {
+                await context.close();
+              } catch {
+                // 忽略关闭错误
+              }
+            }
           }
         }
       }
@@ -1163,8 +1179,9 @@ export class Orchestrator extends EventEmitter {
         ? (config.fixValue as number ?? 2000)
         : 0;
 
-      // 创建带调整配置的测试器
-      const tester = (this.platform === 'h5' || this.platform === 'all')
+      // 创建带调整配置的测试器（根据失败用例的平台选择正确的测试器）
+      const isH5Platform = failedResult.platform === 'h5-web';
+      const tester = isH5Platform
         ? new H5Tester({
             browser: 'chromium',
             device: this.internalConfig.devices[0] || 'iPhone 15',
@@ -1412,10 +1429,59 @@ export class Orchestrator extends EventEmitter {
   private async cleanup(testLogger: ReturnType<typeof logger.child>): Promise<void> {
     testLogger.debug('清理测试资源');
 
+    // 关闭浏览器
     if (this.browser) {
-      await this.browser.close();
+      try {
+        await this.browser.close();
+      } catch (error) {
+        testLogger.warn('关闭浏览器失败', { error: String(error) });
+      }
       this.browser = null;
     }
+
+    // 关闭 RAG 记忆引擎
+    if (this.ragMemory) {
+      try {
+        // RagMemoryEngine 没有 close 方法，但我们可以清理引用
+        this.ragMemory = null;
+      } catch (error) {
+        testLogger.warn('清理 RAG 记忆引擎失败', { error: String(error) });
+      }
+    }
+
+    // 关闭状态图谱构建器
+    if (this.stateGraphBuilder) {
+      try {
+        // 持久化当前图谱
+        const platformKey: WebPlatform = this.platform === 'h5' ? 'h5-web' : 'pc-web';
+        await this.stateGraphBuilder.persistGraph(this.projectName, platformKey);
+        this.stateGraphBuilder = null;
+      } catch (error) {
+        testLogger.warn('关闭状态图谱构建器失败', { error: String(error) });
+      }
+    }
+
+    // 关闭失败模式库
+    if (this.patternLibrary) {
+      this.patternLibrary = null;
+    }
+
+    // 关闭知识库
+    if (this.db) {
+      try {
+        // 数据库是单例，不在这里关闭，但清理引用
+        this.db = null;
+      } catch (error) {
+        testLogger.warn('清理知识库引用失败', { error: String(error) });
+      }
+    }
+
+    // 清理其他引用
+    this.repository = null;
+    this.flowOptimizer = null;
+    this.testScheduler = null;
+    this.failureAnalyzer = null;
+    this.businessFlowAnalyzer = null;
 
     testLogger.info('资源清理完成');
   }
@@ -1496,7 +1562,7 @@ export class Orchestrator extends EventEmitter {
     if (!this.stateGraphBuilder || !this.currentStateHash) return;
 
     try {
-      const platformKey = this.platform === 'h5' ? 'h5-web' : 'pc-web';
+      const platformKey: WebPlatform = this.platform === 'h5' ? 'h5-web' : 'pc-web';
 
       // 创建目标状态哈希（基于动作）
       const targetHash = this.computeActionTargetHash(action, actionTarget);
@@ -1507,7 +1573,7 @@ export class Orchestrator extends EventEmitter {
           targetHash,
           action,
           this.projectName,
-          platformKey as any,
+          platformKey,
           actionTarget,
           actionValue,
           success
@@ -1560,8 +1626,8 @@ export class Orchestrator extends EventEmitter {
     }
 
     try {
-      const platformKey = this.platform === 'h5' ? 'h5-web' : 'pc-web';
-      const graph = this.stateGraphBuilder.getGraph(this.projectName, platformKey as any);
+      const platformKey: WebPlatform = this.platform === 'h5' ? 'h5-web' : 'pc-web';
+      const graph = this.stateGraphBuilder.getGraph(this.projectName, platformKey);
 
       if (!graph) {
         testLogger.debug('无可用状态图谱');
@@ -1617,7 +1683,8 @@ export class Orchestrator extends EventEmitter {
       // 3. 在新状态下重试测试用例
       testLogger.step('🔄 在新状态下重试测试用例');
 
-      const tester = this.platform === 'h5' || this.platform === 'all'
+      // 根据平台键确定使用哪个测试器，保持与状态图谱一致
+      const tester = platformKey === 'h5-web'
         ? new H5Tester({
             browser: 'chromium',
             device: this.internalConfig.devices[0] || 'iPhone 15',
@@ -1667,7 +1734,7 @@ export class Orchestrator extends EventEmitter {
             bestEdge.targetStateHash,
             bestEdge.actionType as TestActionType,
             this.projectName,
-            platformKey as any,
+            platformKey,
             bestEdge.actionTarget ?? undefined,
             bestEdge.actionValue ?? undefined,
             true

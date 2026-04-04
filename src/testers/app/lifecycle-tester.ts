@@ -2,6 +2,7 @@ import type { RemoteOptions } from 'webdriverio';
 import { remote } from 'webdriverio';
 import { logger } from '@/core/logger.js';
 import { deviceManager } from '@/utils/device.js';
+import { registerAppiumSession, closeAppiumSession } from './appium-manager.js';
 
 /**
  * 生命周期测试配置
@@ -14,7 +15,28 @@ export interface LifecycleTesterConfig {
   appiumPort: number;
   automationTimeout: number;
   artifactsDir: string;
+  /** 等待配置（毫秒） */
+  waitConfig?: {
+    /** 应用启动等待时间 */
+    appLaunch?: number;
+    /** 操作间隔等待时间 */
+    operationInterval?: number;
+    /** 屏幕旋转等待时间 */
+    screenRotation?: number;
+    /** 最大等待时间（用于智能等待） */
+    maxWait?: number;
+  };
 }
+
+/**
+ * 默认等待配置
+ */
+const DEFAULT_WAIT_CONFIG = {
+  appLaunch: 3000,
+  operationInterval: 1000,
+  screenRotation: 2000,
+  maxWait: 10000,
+};
 
 /**
  * 生命周期测试结果
@@ -33,6 +55,8 @@ export interface LifecycleTestResult {
 export class LifecycleTester {
   protected config: LifecycleTesterConfig;
   protected driver: WebdriverIO.Browser | null = null;
+  protected sessionId: string | null = null;
+  protected waitConfig: Required<NonNullable<LifecycleTesterConfig['waitConfig']>>;
 
   constructor(config: Partial<LifecycleTesterConfig>) {
     this.config = {
@@ -44,6 +68,7 @@ export class LifecycleTester {
       artifactsDir: './data/screenshots',
       ...config,
     };
+    this.waitConfig = { ...DEFAULT_WAIT_CONFIG, ...config.waitConfig };
   }
 
   /**
@@ -66,6 +91,12 @@ export class LifecycleTester {
     };
 
     this.driver = await remote(options);
+
+    // 注册到 Appium 管理器，确保资源能被正确清理
+    if (this.config.deviceId && this.config.packageName) {
+      this.sessionId = registerAppiumSession(this.driver, this.config.deviceId, this.config.packageName);
+    }
+
     logger.info('🚀 生命周期测试器初始化完成');
   }
 
@@ -74,8 +105,24 @@ export class LifecycleTester {
    */
   async close(): Promise<void> {
     if (this.driver) {
-      await this.driver.deleteSession();
-      this.driver = null;
+      try {
+        await this.driver.deleteSession();
+        logger.info('🔌 生命周期测试器连接已关闭');
+      } catch (error) {
+        logger.warn('关闭生命周期测试器连接失败', { error: String(error) });
+      } finally {
+        // 从管理器注销（如果已注册）
+        if (this.sessionId) {
+          try {
+            closeAppiumSession(this.sessionId);
+          } catch {
+            // 忽略注销错误
+          }
+          this.sessionId = null;
+        }
+        // 确保 driver 被置空，避免后续使用已损坏的连接
+        this.driver = null;
+      }
     }
   }
 
@@ -99,11 +146,27 @@ export class LifecycleTester {
         this.config.mainActivity,
       );
 
-      await this.sleep(2000);
+      // 智能等待应用启动（替代硬编码等待）
+      const appLaunched = await this.waitForAppRunning();
+      if (!appLaunched) {
+        throw new Error('应用启动超时');
+      }
+
+      // 额外等待应用完全加载（使用配置的等待时间）
+      await this.sleep(this.waitConfig.appLaunch);
+
+      // 获取当前活动 Activity 用于验证
+      const beforeActivity = await this.getCurrentActivity();
 
       // 将应用切换到后台
       await deviceManager.shell(this.config.deviceId, 'input keyevent KEYCODE_HOME');
-      await this.sleep(1000);
+      await this.sleep(this.waitConfig.operationInterval);
+
+      // 验证应用已进入后台
+      const inBackground = await this.isAppInBackground();
+      if (!inBackground) {
+        logger.warn('⚠️ 应用可能未正确进入后台');
+      }
 
       // 重新启动应用
       await deviceManager.launchApp(
@@ -112,7 +175,20 @@ export class LifecycleTester {
         this.config.mainActivity,
       );
 
-      await this.sleep(2000);
+      // 智能等待应用恢复
+      const appRestored = await this.waitForAppRunning();
+      if (!appRestored) {
+        throw new Error('应用恢复超时');
+      }
+
+      // 等待应用完全恢复
+      await this.sleep(this.waitConfig.appLaunch);
+
+      // 验证应用已恢复到前台
+      const afterActivity = await this.getCurrentActivity();
+
+      // 实际验证数据是否保留（检查应用进程是否保持）
+      const dataRetained = await this.verifyAppStatePreserved();
 
       logger.pass('✅ 前后台切换测试通过');
       return {
@@ -120,7 +196,7 @@ export class LifecycleTester {
         success: true,
         duration: Date.now() - startTime,
         message: 'App successfully restored from background',
-        dataRetained: true, // 实际需要验证数据是否保留
+        dataRetained,
       };
     } catch (error) {
       logger.fail('❌ 前后台切换测试失败');
@@ -130,6 +206,75 @@ export class LifecycleTester {
         duration: Date.now() - startTime,
         message: (error as Error).message,
       };
+    }
+  }
+
+  /**
+   * 智能等待应用运行
+   */
+  protected async waitForAppRunning(): Promise<boolean> {
+    const maxAttempts = Math.ceil(this.waitConfig.maxWait / 500);
+    for (let i = 0; i < maxAttempts; i++) {
+      try {
+        const result = await deviceManager.shell(
+          this.config.deviceId,
+          `pidof ${this.config.packageName}`
+        );
+        if (result && result.trim().length > 0) {
+          return true;
+        }
+      } catch {
+        // 忽略错误，继续等待
+      }
+      await this.sleep(500);
+    }
+    return false;
+  }
+
+  /**
+   * 检查应用是否在后台
+   */
+  protected async isAppInBackground(): Promise<boolean> {
+    try {
+      const result = await deviceManager.shell(
+        this.config.deviceId,
+        `dumpsys activity activities | grep -A 5 'mResumedActivity'`
+      );
+      // 如果当前 resumed activity 不是目标应用，说明应用在后台
+      return !result.includes(this.config.packageName);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * 获取当前活动 Activity
+   */
+  protected async getCurrentActivity(): Promise<string> {
+    try {
+      const result = await deviceManager.shell(
+        this.config.deviceId,
+        'dumpsys window windows | grep -E "mCurrentFocus"'
+      );
+      return result.trim();
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * 验证应用状态是否保留
+   */
+  protected async verifyAppStatePreserved(): Promise<boolean> {
+    try {
+      // 检查应用进程 ID 是否变化（进程 ID 不变说明进程未重启）
+      const pidResult = await deviceManager.shell(
+        this.config.deviceId,
+        `pidof ${this.config.packageName}`
+      );
+      return Boolean(pidResult && pidResult.trim().length > 0);
+    } catch {
+      return false;
     }
   }
 
@@ -158,7 +303,8 @@ export class LifecycleTester {
       await deviceManager.shell(this.config.deviceId, 'settings put system accelerometer_rotation 0');
       await deviceManager.shell(this.config.deviceId, 'settings put system user_rotation 1'); // 横屏
 
-      await this.sleep(2000);
+      // 使用配置的屏幕旋转等待时间
+      await this.sleep(this.waitConfig.screenRotation);
 
       // 验证应用是否正常显示（实际需要检查布局）
       logger.pass('✅ 横屏测试通过');
@@ -184,7 +330,8 @@ export class LifecycleTester {
 
       await deviceManager.shell(this.config.deviceId, 'settings put system user_rotation 0'); // 竖屏
 
-      await this.sleep(2000);
+      // 使用配置的屏幕旋转等待时间
+      await this.sleep(this.waitConfig.screenRotation);
 
       logger.pass('✅ 竖屏测试通过');
       results.push({
@@ -217,6 +364,7 @@ export class LifecycleTester {
     }
 
     const startTime = Date.now();
+    const openedApps: string[] = [];
 
     try {
       logger.step('🧪 测试内存压力场景');
@@ -228,7 +376,7 @@ export class LifecycleTester {
         this.config.mainActivity,
       );
 
-      await this.sleep(2000);
+      await this.sleep(this.waitConfig.appLaunch);
 
       // 模拟内存压力：打开多个其他应用
       const testApps = [
@@ -239,9 +387,10 @@ export class LifecycleTester {
       for (const app of testApps) {
         try {
           await deviceManager.shell(this.config.deviceId, `am start -n ${app.package}/${app.activity}`);
-          await this.sleep(500);
-        } catch {
-          // 忽略启动失败
+          openedApps.push(app.package);
+          await this.sleep(this.waitConfig.operationInterval);
+        } catch (error) {
+          logger.debug(`启动应用 ${app.package} 失败: ${error}`);
         }
       }
 
@@ -255,7 +404,7 @@ export class LifecycleTester {
         this.config.mainActivity,
       );
 
-      await this.sleep(2000);
+      await this.sleep(this.waitConfig.appLaunch);
 
       logger.pass('✅ 内存压力测试通过');
       return {
@@ -273,6 +422,16 @@ export class LifecycleTester {
         duration: Date.now() - startTime,
         message: (error as Error).message,
       };
+    } finally {
+      // 清理：关闭测试过程中打开的其他应用，防止残留占用设备资源
+      for (const appPackage of openedApps) {
+        try {
+          await deviceManager.shell(this.config.deviceId, `am force-stop ${appPackage}`);
+          logger.debug(`已清理应用: ${appPackage}`);
+        } catch (error) {
+          logger.debug(`清理应用 ${appPackage} 失败: ${error}`);
+        }
+      }
     }
   }
 

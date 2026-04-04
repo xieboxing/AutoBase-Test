@@ -7,6 +7,7 @@ import { EventEmitter } from 'node:events';
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
 import { logger } from '@/core/logger.js';
 import { eventBus, TestEventType } from '@/core/event-bus.js';
 import { nanoid } from 'nanoid';
@@ -226,11 +227,31 @@ export class ParallelRunner extends EventEmitter {
 
   /**
    * 获取 Worker 脚本路径
+   * 支持开发模式（tsx）和生产模式（编译后的 JS）
    */
   private getWorkerPath(): string {
-    // 使用当前模块目录下的 test-worker.ts
     const currentDir = path.dirname(fileURLToPath(import.meta.url));
-    return path.join(currentDir, 'workers', 'test-worker.js');
+
+    // 优先使用编译后的 JS 文件
+    const jsPath = path.join(currentDir, 'workers', 'test-worker.js');
+    const tsPath = path.join(currentDir, 'workers', 'test-worker.ts');
+
+    // 检查是否存在编译后的 JS 文件
+    try {
+      // 同步检查文件是否存在（使用顶层导入的 fs 模块）
+      if (fs.existsSync(jsPath)) {
+        return jsPath;
+      }
+    } catch {
+      // 忽略错误
+    }
+
+    // 开发模式：返回 TS 文件路径（需要 tsx 或 ts-node 支持）
+    // 注意：Node.js Worker 原生不支持 TS，需要通过 tsx 等工具启动
+    logger.warn('⚠️ 未找到编译后的 Worker 文件，请确保已运行 npm run build');
+    logger.info(`💡 Worker 路径: ${jsPath} 或 ${tsPath}`);
+
+    return jsPath;
   }
 
   /**
@@ -520,17 +541,47 @@ export class ParallelRunner extends EventEmitter {
       }
 
       // 发送关闭消息
-      worker.postMessage({ type: 'shutdown' });
+      try {
+        worker.postMessage({ type: 'shutdown' });
+      } catch {
+        // 如果发送失败，直接终止
+      }
 
-      // 等待 Worker 退出
+      // 等待 Worker 退出（带强制终止机制）
       const promise = new Promise<void>((resolve) => {
-        const timeout = setTimeout(() => {
-          worker.terminate();
-          resolve();
+        // 第一阶段：等待5秒让Worker优雅退出
+        const gracefulTimeout = setTimeout(() => {
+          logger.warn(`⚠️ Worker ${workerId} 优雅退出超时，尝试强制终止`);
+          try {
+            worker.terminate();
+          } catch {
+            // 忽略终止错误
+          }
         }, 5000);
 
+        // 第二阶段：如果terminate后仍不退出，再等3秒后强制kill
+        const forceKillTimeout = setTimeout(() => {
+          logger.warn(`⚠️ Worker ${workerId} 未响应terminate，可能已成为僵尸进程`);
+          // 注意：Worker线程无法直接发送SIGKILL，只能依赖terminate
+          // 但我们可以记录日志并继续，避免阻塞整个关闭流程
+          resolve();
+        }, 8000);
+
         worker.on('exit', () => {
-          clearTimeout(timeout);
+          clearTimeout(gracefulTimeout);
+          clearTimeout(forceKillTimeout);
+          resolve();
+        });
+
+        worker.on('error', (error) => {
+          clearTimeout(gracefulTimeout);
+          clearTimeout(forceKillTimeout);
+          logger.warn(`⚠️ Worker ${workerId} 发生错误: ${error}`);
+          try {
+            worker.terminate();
+          } catch {
+            // 忽略终止错误
+          }
           resolve();
         });
       });
@@ -538,10 +589,14 @@ export class ParallelRunner extends EventEmitter {
       shutdownPromises.push(promise);
     }
 
-    await Promise.all(shutdownPromises);
+    // 等待所有 Worker 关闭
+    await Promise.allSettled(shutdownPromises);
 
+    // 清理状态
     this.workers.clear();
     this.workerProcesses.clear();
+    this.taskQueue = [];
+    this.runningTasks.clear();
 
     logger.pass('✅ Worker 池已关闭');
   }

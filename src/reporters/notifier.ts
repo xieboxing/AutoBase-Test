@@ -95,15 +95,34 @@ export class Notifier {
    */
   private initEmailTransporter(): void {
     if (this.config.email) {
-      this.emailTransporter = nodemailer.createTransport({
-        host: this.config.email.host,
-        port: this.config.email.port,
-        secure: this.config.email.secure ?? this.config.email.port === 465,
-        auth: {
-          user: this.config.email.user,
-          pass: this.config.email.password,
-        },
-      });
+      try {
+        this.emailTransporter = nodemailer.createTransport({
+          host: this.config.email.host,
+          port: this.config.email.port,
+          secure: this.config.email.secure ?? this.config.email.port === 465,
+          auth: {
+            user: this.config.email.user,
+            pass: this.config.email.password,
+          },
+          // 添加连接超时和错误处理
+          connectionTimeout: 10000,
+          socketTimeout: 10000,
+        });
+
+        // 验证连接配置（异步，不阻塞初始化）
+        this.emailTransporter.verify((error) => {
+          if (error) {
+            logger.warn('邮件服务器连接验证失败', { error: error.message });
+            // 验证失败时清理传输器，避免后续使用无效连接
+            this.emailTransporter = null;
+          } else {
+            logger.info('邮件服务器连接验证成功');
+          }
+        });
+      } catch (error) {
+        logger.error('邮件传输器初始化失败', { error: String(error) });
+        this.emailTransporter = null;
+      }
     }
   }
 
@@ -278,7 +297,7 @@ ${payload.reportUrl ? `查看报告: ${payload.reportUrl}` : '无报告链接'}
 
     const { type, url, headers, secret } = this.config.webhook;
     let body: string | object;
-    let webhookHeaders: Record<string, string> = { ...headers };
+    const webhookHeaders: Record<string, string> = { ...headers };
 
     switch (type) {
       case 'slack':
@@ -544,6 +563,20 @@ ${payload.reportUrl ? `查看报告: ${payload.reportUrl}` : ''}`;
     const seconds = Math.round((ms % 60000) / 1000);
     return `${minutes}m ${seconds}s`;
   }
+
+  /**
+   * 关闭通知器（释放资源）
+   */
+  async close(): Promise<void> {
+    if (this.emailTransporter) {
+      try {
+        this.emailTransporter.close();
+      } catch (error) {
+        logger.warn('关闭邮件传输器失败', { error: String(error) });
+      }
+      this.emailTransporter = null;
+    }
+  }
 }
 
 /**
@@ -555,7 +588,11 @@ export async function sendTestNotification(
   reportUrl?: string,
 ): Promise<void> {
   const notifier = new Notifier(config);
-  await notifier.sendAll(result, reportUrl);
+  try {
+    await notifier.sendAll(result, reportUrl);
+  } finally {
+    await notifier.close();
+  }
 }
 
 /**

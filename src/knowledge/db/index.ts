@@ -21,7 +21,7 @@ export type TestPlatform = 'pc-web' | 'h5-web' | 'android-app' | 'api';
  * 默认配置 - 使用 db/sqlite.db 作为主数据库
  */
 const DEFAULT_DATABASE_CONFIG: DatabaseConfig = {
-  dbPath: './db/sqlite.db',
+  dbPath: process.env.AUTO_TEST_DB_PATH || process.env.DB_PATH || './db/sqlite.db',
   enableVectorExtension: true,
   vectorExtensionPath: './db/ext',
 };
@@ -212,6 +212,8 @@ export class KnowledgeDatabase {
         last_failure TEXT,
         ai_suggested INTEGER DEFAULT 0,
         embedding BLOB,
+        page_url_pattern TEXT,
+        last_updated TEXT,
         created TEXT NOT NULL,
         updated TEXT NOT NULL
       );
@@ -758,15 +760,43 @@ export class KnowledgeDatabase {
 
 // 单例实例
 let dbInstance: KnowledgeDatabase | null = null;
+let initPromise: Promise<void> | null = null;
+
+/**
+ * 检查数据库是否已初始化
+ */
+export function isDatabaseInitialized(): boolean {
+  return dbInstance !== null && dbInstance['db'] !== null;
+}
 
 /**
  * 获取数据库单例
+ * 注意：调用此方法前应确保已调用 initializeDatabase()
+ * 如果未初始化，会自动初始化一个默认实例（延迟初始化模式）
  */
 export function getDatabase(config?: Partial<DatabaseConfig>): KnowledgeDatabase {
   if (!dbInstance) {
+    // 自动初始化一个默认实例（延迟初始化模式）
+    // 但建议在生产环境中显式调用 initializeDatabase()
     dbInstance = new KnowledgeDatabase(config);
+    logger.warn('⚠️ 数据库单例在未显式初始化的情况下被访问，建议在启动时调用 initializeDatabase()');
+    // 同步初始化（简化处理，实际使用中应确保先调用 initializeDatabase）
+    // 注意：这里不等待初始化完成，调用方应该使用 initializeDatabase() 确保初始化完成
+    initPromise = dbInstance.initialize().catch(err => {
+      logger.error('数据库自动初始化失败', { error: String(err) });
+      initPromise = null;
+    });
   }
   return dbInstance;
+}
+
+/**
+ * 等待数据库初始化完成
+ */
+export async function waitForInitialization(): Promise<void> {
+  if (initPromise) {
+    await initPromise;
+  }
 }
 
 /**

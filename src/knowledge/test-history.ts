@@ -229,8 +229,9 @@ export class TestHistory {
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    const limitClause = options.limit ? `LIMIT ${options.limit}` : '';
-    const offsetClause = options.offset ? `OFFSET ${options.offset}` : '';
+    // 参数化 LIMIT 和 OFFSET，防止潜在注入
+    const limitClause = options.limit ? 'LIMIT ?' : '';
+    const offsetClause = options.offset ? 'OFFSET ?' : '';
 
     const sql = `
       SELECT * FROM test_runs
@@ -238,6 +239,14 @@ export class TestHistory {
       ORDER BY start_time DESC
       ${limitClause} ${offsetClause}
     `;
+
+    // 添加 limit 和 offset 参数
+    if (options.limit) {
+      params.push(Math.max(1, Math.min(1000, Number(options.limit) || 100)));
+    }
+    if (options.offset) {
+      params.push(Math.max(0, Number(options.offset) || 0));
+    }
 
     const rows = this.db.query<{
       id: string;
@@ -422,6 +431,9 @@ export class TestHistory {
     totalCases: number;
     failedCases: number;
   }> {
+    // 参数验证：确保 days 是合法数字，防止 SQL 注入
+    const safeDays = Math.max(1, Math.min(365, Number(days) || 30));
+
     const rows = this.db.query<{
       date: string;
       pass_rate: number;
@@ -434,10 +446,10 @@ export class TestHistory {
         SUM(total_cases) as total_cases,
         SUM(failed) as failed_cases
       FROM test_runs
-      WHERE project = ? AND start_time > datetime('now', '-${days} days')
+      WHERE project = ? AND start_time > datetime('now', '-' || ? || ' days')
       GROUP BY date(start_time)
       ORDER BY date
-    `, [project]);
+    `, [project, safeDays]);
 
     return rows.map(row => ({
       date: row.date,

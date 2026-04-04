@@ -6,10 +6,16 @@ import { FailureAnalyzer } from '@/ai/failure-analyzer.js';
 import { SelfHealer } from '@/ai/self-healer.js';
 import { FlowOptimizer } from '@/ai/flow-optimizer.js';
 import { buildAnalyzePagePrompt, parsePageAnalysisResult } from '@/ai/prompts/analyze-page.prompt.js';
+import { initializeDatabase, resetDatabase, type KnowledgeDatabase } from '@/knowledge/db/index.js';
 import type { PageSnapshot, InteractiveElement, FormInfo } from '@/types/crawler.types.js';
 import type { TestCase, TestStep } from '@/types/test-case.types.js';
 import type { TestCaseResult } from '@/types/test-result.types.js';
 import type { PageAnalysisResult, FailureContext } from '@/types/ai.types.js';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
+// 测试数据库路径
+const TEST_DB_PATH = './db/test-ai-flow.db';
 
 /**
  * AI 模块集成测试
@@ -184,8 +190,22 @@ describe('AI Flow Integration', () => {
   });
 
   let mockAiClient: AiClient;
+  let db: KnowledgeDatabase;
 
-  beforeAll(() => {
+  beforeAll(async () => {
+    // 确保测试目录存在
+    await fs.mkdir(path.dirname(TEST_DB_PATH), { recursive: true });
+
+    // 删除旧的测试数据库文件
+    try {
+      await fs.unlink(TEST_DB_PATH);
+    } catch {
+      // 文件不存在，忽略
+    }
+
+    // 初始化测试数据库
+    db = await initializeDatabase({ dbPath: TEST_DB_PATH });
+
     // 创建 Mock AI 客户端
     mockAiClient = getAiClient();
 
@@ -224,8 +244,22 @@ describe('AI Flow Integration', () => {
     });
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     vi.restoreAllMocks();
+
+    // 关闭数据库
+    try {
+      db.close();
+    } catch {
+      // 忽略关闭错误
+    }
+
+    // 清理测试数据库文件
+    try {
+      await fs.unlink(TEST_DB_PATH);
+    } catch {
+      // 忽略删除失败
+    }
   });
 
   describe('AI Client', () => {

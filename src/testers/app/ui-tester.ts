@@ -3,6 +3,7 @@ import { remote } from 'webdriverio';
 import { logger } from '@/core/logger.js';
 import type { TestCase, TestStep } from '@/types/test-case.types.js';
 import type { TestCaseResult, TestStepResult } from '@/types/test-result.types.js';
+import { registerAppiumSession, closeAppiumSession } from './appium-manager.js';
 
 /**
  * UI 测试器配置
@@ -35,6 +36,7 @@ export type LocatorStrategy =
 export class UiTester {
   protected config: UiTesterConfig;
   protected driver: WebdriverIO.Browser | null = null;
+  protected sessionId: string | null = null;
 
   constructor(config: Partial<UiTesterConfig>) {
     this.config = {
@@ -81,6 +83,11 @@ export class UiTester {
 
     this.driver = await remote(options);
 
+    // 注册到 Appium 管理器，确保资源能被正确清理
+    if (this.config.deviceId && this.config.packageName) {
+      this.sessionId = registerAppiumSession(this.driver, this.config.deviceId, this.config.packageName);
+    }
+
     logger.pass('✅ Appium 连接成功');
   }
 
@@ -89,9 +96,23 @@ export class UiTester {
    */
   async close(): Promise<void> {
     if (this.driver) {
-      await this.driver.deleteSession();
-      this.driver = null;
-      logger.info('🔌 Appium 连接已关闭');
+      try {
+        await this.driver.deleteSession();
+        logger.info('🔌 Appium 连接已关闭');
+      } catch (error) {
+        logger.warn('关闭 Appium 连接失败', { error: String(error) });
+      } finally {
+        // 从管理器注销（如果已注册）
+        if (this.sessionId) {
+          try {
+            closeAppiumSession(this.sessionId);
+          } catch {
+            // 忽略注销错误
+          }
+          this.sessionId = null;
+        }
+        this.driver = null;
+      }
     }
   }
 
@@ -438,7 +459,7 @@ export class UiTester {
   }
 
   /**
-   * 查找元素
+   * 查找元素（带可见性检查）
    */
   protected async findElement(
     selector: string,
@@ -452,7 +473,17 @@ export class UiTester {
     const locator = this.buildLocator(selector, 'id');
     const element = await this.driver.$(locator);
 
+    // 先等待元素存在
     await element.waitForExist({ timeout });
+
+    // 再等待元素可见（使用剩余超时时间的一半）
+    const remainingTimeout = Math.max(timeout / 2, 5000);
+    try {
+      await element.waitForDisplayed({ timeout: remainingTimeout });
+    } catch {
+      // 如果不可见但存在，记录警告但不抛出错误
+      logger.warn(`元素存在但不可见: ${selector}`);
+    }
 
     return element;
   }
@@ -460,8 +491,21 @@ export class UiTester {
   /**
    * 构建定位器
    */
-  protected buildLocator(selector: string, _strategy: LocatorStrategy): string {
-    return `id:${selector}`;
+  protected buildLocator(selector: string, strategy: LocatorStrategy): string {
+    switch (strategy) {
+      case 'id':
+        return `id:${selector}`;
+      case 'accessibility-id':
+        return `accessibility id:${selector}`;
+      case 'xpath':
+        return selector; // XPath 直接使用
+      case 'class-name':
+        return `class name:${selector}`;
+      case 'android-uiautomator':
+        return `android=uiautomator:${selector}`;
+      default:
+        return `id:${selector}`;
+    }
   }
 
   /**

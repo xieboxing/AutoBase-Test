@@ -275,16 +275,27 @@ export class FormTester {
     try {
       // 清空所有字段
       for (const field of form.fields) {
-        await this.page.locator(field.selector).fill('').catch(() => {});
+        try {
+          await this.page.locator(field.selector).fill('');
+        } catch (error) {
+          logger.debug(`清空字段 ${field.selector} 失败: ${error}`);
+        }
       }
 
       // 点击提交
       if (form.submitButton) {
-        await this.page.locator(form.submitButton).click().catch(() => {});
+        try {
+          await this.page.locator(form.submitButton).click();
+        } catch (error) {
+          logger.debug(`点击提交按钮失败: ${error}`);
+        }
       }
 
-      // 等待验证信息
-      await this.page.waitForTimeout(500);
+      // 等待页面稳定（等待验证信息出现或页面跳转）
+      await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+
+      // 智能等待验证错误出现（替代固定等待500ms）
+      await this.page.waitForTimeout(300); // 给浏览器一点时间处理HTML5验证
 
       // 检查是否有验证错误信息
       const hasError = await this.page.evaluate(() => {

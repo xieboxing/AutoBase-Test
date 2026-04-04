@@ -16,3 +16,6 @@ export * from './worker.types.js';
 export * from './visual.types.js';
 export * from './exploration.types.js';
 export * from './business-flow.types.js';
+
+// 重新导出 WebPlatform 类型以便于使用
+export type { WebPlatform } from './test-case.types.js';

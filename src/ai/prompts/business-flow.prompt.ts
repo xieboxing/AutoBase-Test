@@ -174,7 +174,7 @@ export function buildBusinessFlowWithScreenshotPrompt(params: {
   forms: FormInfo[];
   screenshotBase64: string;
   previousPages?: Array<{ url: string; title: string }>;
-}): Array<{ type: 'text' | 'image'; text?: string; source?: { type: 'base64'; media_type: string; data: string } }> {
+}): Array<{ type: 'text' | 'image'; text?: string; source?: { type: 'base64'; media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'; data: string } }> {
   const textPrompt = buildBusinessFlowPrompt(params);
 
   return [

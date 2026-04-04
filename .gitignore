@@ -50,6 +50,9 @@ db/ext/**/*.dll
 db/ext/**/*.so
 db/ext/**/*.dylib
 
+# 忽略测试临时数据库
+db/test-*.db
+
 # 忽略旧的 knowledge 目录数据库
 data/knowledge/*.db
 

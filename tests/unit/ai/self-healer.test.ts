@@ -214,7 +214,7 @@ describe('SelfHealer', () => {
       expect(retrieved[0].originalSelector).toBe('.old-btn');
     });
 
-    it('should cleanup low success rate mappings', () => {
+    it('should cleanup low success rate mappings', async () => {
       // Add a low success rate mapping
       const lowSuccessMapping = {
         id: 'map-002',
@@ -230,7 +230,7 @@ describe('SelfHealer', () => {
       };
 
       healer.loadMappings([lowSuccessMapping]);
-      healer.cleanupMappings(0.3);
+      await healer.cleanupMappings(0.3);
 
       const remaining = healer.getMappings();
       expect(remaining.length).toBe(0);

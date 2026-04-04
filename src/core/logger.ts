@@ -2,15 +2,52 @@ import type { DestinationStream } from 'pino';
 import { pino, destination } from 'pino';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { nanoid } from 'nanoid';
 
-// 日志文件路径
-const LOG_DIR = path.resolve(process.cwd(), 'data/logs');
+/**
+ * 获取日志目录路径
+ * 支持环境变量配置，带降级处理
+ */
+function getLogDir(): string {
+  // 优先使用环境变量配置
+  const envLogDir = process.env.AUTO_TEST_LOG_DIR || process.env.LOG_DIR;
 
-// 确保日志目录存在
-if (!fs.existsSync(LOG_DIR)) {
-  fs.mkdirSync(LOG_DIR, { recursive: true });
+  if (envLogDir) {
+    try {
+      if (!fs.existsSync(envLogDir)) {
+        fs.mkdirSync(envLogDir, { recursive: true });
+      }
+      return envLogDir;
+    } catch {
+      console.warn(`⚠️ 无法创建日志目录 ${envLogDir}，使用默认目录`);
+    }
+  }
+
+  // 默认使用 data/logs
+  const defaultLogDir = path.resolve(process.cwd(), 'data/logs');
+  try {
+    if (!fs.existsSync(defaultLogDir)) {
+      fs.mkdirSync(defaultLogDir, { recursive: true });
+    }
+    return defaultLogDir;
+  } catch {
+    // 降级到临时目录
+    const fallbackDir = path.join(os.tmpdir(), 'auto-test-logs');
+    try {
+      fs.mkdirSync(fallbackDir, { recursive: true });
+      console.warn(`⚠️ 使用临时目录作为日志目录: ${fallbackDir}`);
+      return fallbackDir;
+    } catch {
+      // 最后降级：使用当前目录
+      console.warn(`⚠️ 无法创建日志目录，使用当前目录`);
+      return process.cwd();
+    }
+  }
 }
+
+// 日志文件路径
+const LOG_DIR = getLogDir();
 
 // 生成运行 ID
 const runId = nanoid(8);

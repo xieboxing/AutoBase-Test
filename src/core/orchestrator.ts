@@ -27,7 +27,7 @@ import { StateGraphBuilder, createStateGraphBuilder } from './state-graph-builde
 import { BusinessFlowAnalyzer, createBusinessFlowAnalyzer } from '@/ai/business-flow-analyzer.js';
 import type { RagMemoryType } from '@/types/rag.types.js';
 import { nanoid } from 'nanoid';
-import { chromium, type Browser, type BrowserContext } from 'playwright';
+import { chromium, type BrowserContext, type Page } from 'playwright';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import crypto from 'node:crypto';
@@ -101,7 +101,6 @@ export class Orchestrator extends EventEmitter {
   private startTime: string;
   private endTime?: string;
   private isRunning: boolean = false;
-  private browser: Browser | null = null;
   private results: TestCaseResult[] = [];
   private db: KnowledgeDatabase | null = null;
   private repository: KnowledgeRepository | null = null;
@@ -304,25 +303,8 @@ export class Orchestrator extends EventEmitter {
       testLogger.warn('⚠️ 数据库初始化失败，将不使用历史知识', { error: String(error) });
     }
 
-    // 启动浏览器
-    testLogger.info('启动浏览器', { browsers: this.internalConfig.browsers });
-    this.browser = await chromium.launch({
-      headless: true,
-      args: [
-        '--disable-blink-features=AutomationControlled',
-        '--no-sandbox',
-        '--disable-dev-shm-usage',
-      ],
-    });
-
-    // 注册到浏览器管理器，确保资源能被正确清理
-    try {
-      const { registerBrowser } = await import('@/testers/web/browser-manager.js');
-      registerBrowser(this.browser);
-    } catch {
-      // 忽略导入错误，浏览器管理器可能未初始化
-    }
-
+    // 注意：不再在此处创建浏览器，由各 Tester 自行管理
+    // 这样可以避免资源管理混乱，每个 Tester 负责自己的浏览器生命周期
     testLogger.pass('✅ 环境初始化完成');
   }
 
@@ -629,8 +611,17 @@ export class Orchestrator extends EventEmitter {
         errors: crawlResult.errors.length,
       });
 
-      // 为每个页面生成快照
-      if (this.browser) {
+      // 为每个页面生成快照（创建独立的浏览器实例）
+      const snapshotBrowser = await chromium.launch({
+        headless: true,
+        args: [
+          '--disable-blink-features=AutomationControlled',
+          '--no-sandbox',
+          '--disable-dev-shm-usage',
+        ],
+      });
+
+      try {
         const snapshotter = new PageSnapshotter({
           fullPageScreenshot: true,
           captureInteractiveElements: true,
@@ -646,7 +637,7 @@ export class Orchestrator extends EventEmitter {
           try {
             testLogger.step(`📸 生成页面快照`, { url: crawledPage.url });
 
-            context = await this.browser.newContext({
+            context = await snapshotBrowser.newContext({
               viewport: { width: 1920, height: 1080 },
             });
             page = await context.newPage();
@@ -689,7 +680,6 @@ export class Orchestrator extends EventEmitter {
             testLogger.warn('快照生成失败', { url: crawledPage.url, error: String(error) });
           } finally {
             // 确保 page 和 context 被正确关闭，防止资源泄漏
-            // 关闭顺序：page -> context
             if (page) {
               try {
                 await page.close();
@@ -706,31 +696,43 @@ export class Orchestrator extends EventEmitter {
             }
           }
         }
+      } finally {
+        // 确保快照浏览器被关闭
+        await snapshotBrowser.close();
       }
     } catch (error) {
       testLogger.warn('爬虫执行失败，使用首页快照', { error: String(error) });
 
       // 如果爬虫失败，至少获取首页快照
-      if (this.browser) {
-        try {
-          const context = await this.browser.newContext({
-            viewport: { width: 1920, height: 1080 },
-          });
-          const page = await context.newPage();
+      const fallbackBrowser = await chromium.launch({
+        headless: true,
+        args: [
+          '--disable-blink-features=AutomationControlled',
+          '--no-sandbox',
+          '--disable-dev-shm-usage',
+        ],
+      });
 
-          await page.goto(this.url, {
-            waitUntil: 'domcontentloaded',
-            timeout: 30000,
-          });
+      try {
+        const context = await fallbackBrowser.newContext({
+          viewport: { width: 1920, height: 1080 },
+        });
+        const page = await context.newPage();
 
-          const snapshotter = new PageSnapshotter();
-          const snapshot = await snapshotter.takeSnapshot(page, this.url);
-          snapshots.push(snapshot);
+        await page.goto(this.url, {
+          waitUntil: 'domcontentloaded',
+          timeout: 30000,
+        });
 
-          await context.close();
-        } catch (snapshotError) {
-          testLogger.fail('首页快照也失败', { error: String(snapshotError) });
-        }
+        const snapshotter = new PageSnapshotter();
+        const snapshot = await snapshotter.takeSnapshot(page, this.url);
+        snapshots.push(snapshot);
+
+        await context.close();
+      } catch (snapshotError) {
+        testLogger.fail('首页快照也失败', { error: String(snapshotError) });
+      } finally {
+        await fallbackBrowser.close();
       }
     }
 
@@ -1438,14 +1440,15 @@ export class Orchestrator extends EventEmitter {
   private async cleanup(testLogger: ReturnType<typeof logger.child>): Promise<void> {
     testLogger.debug('清理测试资源');
 
-    // 关闭浏览器
-    if (this.browser) {
-      try {
-        await this.browser.close();
-      } catch (error) {
-        testLogger.warn('关闭浏览器失败', { error: String(error) });
+    // 关闭所有浏览器实例（由 browser-manager 统一管理）
+    try {
+      const { closeAllBrowsers } = await import('@/testers/web/browser-manager.js');
+      const closedCount = await closeAllBrowsers();
+      if (closedCount > 0) {
+        testLogger.debug(`已关闭 ${closedCount} 个浏览器实例`);
       }
-      this.browser = null;
+    } catch {
+      // 浏览器管理器可能未初始化
     }
 
     // 关闭 RAG 记忆引擎
@@ -1782,13 +1785,20 @@ export class Orchestrator extends EventEmitter {
     edge: import('@/types/state-graph.types.js').StateEdge,
     testLogger: ReturnType<typeof logger.child>,
   ): Promise<boolean> {
-    if (!this.browser) {
-      testLogger.debug('浏览器未初始化，无法执行替代路径');
-      return false;
-    }
+    // 创建独立的浏览器实例执行替代路径
+    let browser: import('playwright').Browser | null = null;
 
     try {
-      const context = await this.browser.newContext({
+      browser = await chromium.launch({
+        headless: true,
+        args: [
+          '--disable-blink-features=AutomationControlled',
+          '--no-sandbox',
+          '--disable-dev-shm-usage',
+        ],
+      });
+
+      const context = await browser.newContext({
         viewport: this.platform === 'h5' ? { width: 375, height: 667 } : { width: 1920, height: 1080 },
       });
       const page = await context.newPage();
@@ -1823,6 +1833,7 @@ export class Orchestrator extends EventEmitter {
         default:
           testLogger.debug(`未支持的动作类型: ${edge.actionType}`);
           await context.close();
+          await browser.close();
           return false;
       }
 
@@ -1835,9 +1846,18 @@ export class Orchestrator extends EventEmitter {
       testLogger.debug('✅ 替代动作执行成功', { newStateHash: newStateHash.slice(0, 8) });
 
       await context.close();
+      await browser.close();
       return true;
     } catch (error) {
       testLogger.warn('替代动作执行失败', { error: String(error) });
+      // 确保浏览器被关闭
+      if (browser) {
+        try {
+          await browser.close();
+        } catch {
+          // 忽略关闭错误
+        }
+      }
       return false;
     }
   }

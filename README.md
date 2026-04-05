@@ -91,7 +91,7 @@ npx autotest web https://example.com --type performance    # 性能测试
 npx autotest web https://example.com --type security       # 安全测试
 
 # 跨浏览器测试
-npx autotest web https://example.com --browser chrome,firefox,safari
+npx autotest web https://example.com --browser chromium,firefox,webkit
 
 # 指定设备模拟
 npx autotest web https://example.com --device "iPhone 15,Pixel 7"
@@ -171,29 +171,29 @@ npm run doctor
 npx autotest app ./my-app.apk
 
 # 冒烟测试（快速验证核心功能）
-npx tsx src/cli/index.ts app ./my-app.apk --type smoke
+npx autotest app ./my-app.apk --type smoke
 
 # 全量测试
-npx tsx src/cli/index.ts app ./my-app.apk --type full
+npx autotest app ./my-app.apk --type full
 
 # 性能专项测试
-npx tsx src/cli/index.ts app ./my-app.apk --type performance
+npx autotest app ./my-app.apk --type performance
 
 # 稳定性测试（Monkey 随机操作）
-npx tsx src/cli/index.ts app ./my-app.apk --type monkey
+npx autotest app ./my-app.apk --type monkey
 
 # 指定设备
-npx tsx src/cli/index.ts app ./my-app.apk --device emulator-5554
+npx autotest app ./my-app.apk --device emulator-5554
 ```
 
 ### 测试已安装的应用
 
 ```bash
 # 通过包名测试（无需 APK 文件）
-npx tsx src/cli/index.ts app --package com.example.myapp
+npx autotest app --package com.example.myapp
 
 # 指定主 Activity（可选）
-npx tsx src/cli/index.ts app --package com.example.myapp --activity .MainActivity
+npx autotest app --package com.example.myapp --activity .MainActivity
 ```
 
 ### APP 测试内容

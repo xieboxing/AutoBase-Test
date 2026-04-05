@@ -200,26 +200,33 @@ async function runDoctor(options: { fix?: boolean }): Promise<void> {
  */
 async function checkBrowsers(): Promise<Array<{ name: string; installed: boolean }>> {
   const browsers = [
-    { name: 'Chromium', command: 'npx playwright install chromium' },
-    { name: 'Firefox', command: 'npx playwright install firefox' },
-    { name: 'WebKit', command: 'npx playwright install webkit' },
+    { name: 'Chromium', browserType: 'chromium' },
+    { name: 'Firefox', browserType: 'firefox' },
+    { name: 'WebKit', browserType: 'webkit' },
   ];
 
   const results: Array<{ name: string; installed: boolean }> = [];
 
-  // 检查 Playwright 浏览器
+  // 使用 Playwright API 检查浏览器安装
   try {
-    const playwrightPath = path.join(process.cwd(), 'node_modules', 'playwright');
-    const browsersPath = path.join(playwrightPath, 'browsers');
+    const { chromium, firefox, webkit } = await import('playwright');
 
-    for (const browser of browsers) {
+    const browserChecks = [
+      { name: 'Chromium', check: async () => { try { const browser = await chromium.launch(); await browser.close(); return true; } catch { return false; } } },
+      { name: 'Firefox', check: async () => { try { const browser = await firefox.launch(); await browser.close(); return true; } catch { return false; } } },
+      { name: 'WebKit', check: async () => { try { const browser = await webkit.launch(); await browser.close(); return true; } catch { return false; } } },
+    ];
+
+    for (const { name, check } of browserChecks) {
       try {
-        // 检查浏览器是否安装
-        const browserCheckPath = path.join(browsersPath, browser.name.toLowerCase());
-        const stat = await fs.stat(browserCheckPath).catch(() => null);
-        results.push({ name: browser.name, installed: !!stat });
+        // 设置超时，避免检查卡住
+        const installed = await Promise.race([
+          check(),
+          new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000)),
+        ]);
+        results.push({ name, installed });
       } catch {
-        results.push({ name: browser.name, installed: false });
+        results.push({ name, installed: false });
       }
     }
   } catch {

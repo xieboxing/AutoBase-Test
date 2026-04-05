@@ -8,6 +8,16 @@ export enum TestErrorCode {
   DEVICE_NOT_FOUND = 'DEVICE_NOT_FOUND',
   ENVIRONMENT_NOT_READY = 'ENVIRONMENT_NOT_READY',
 
+  // APP 专用错误
+  APP_INSTALL_FAILED = 'APP_INSTALL_FAILED',
+  APP_LAUNCH_FAILED = 'APP_LAUNCH_FAILED',
+  APP_CRASH = 'APP_CRASH',
+  APP_PERMISSION_DENIED = 'APP_PERMISSION_DENIED',
+  APP_ACTIVITY_NOT_FOUND = 'APP_ACTIVITY_NOT_FOUND',
+  ADB_COMMAND_FAILED = 'ADB_COMMAND_FAILED',
+  APK_FILE_NOT_FOUND = 'APK_FILE_NOT_FOUND',
+  APK_PARSE_FAILED = 'APK_PARSE_FAILED',
+
   // 测试执行错误
   ELEMENT_NOT_FOUND = 'ELEMENT_NOT_FOUND',       // → 触发自愈
   NAVIGATION_TIMEOUT = 'NAVIGATION_TIMEOUT',
@@ -20,6 +30,7 @@ export enum TestErrorCode {
   AI_API_FAILED = 'AI_API_FAILED',
   AI_PARSE_FAILED = 'AI_PARSE_FAILED',
   AI_NOT_AVAILABLE = 'AI_NOT_AVAILABLE',
+  AI_TIMEOUT = 'AI_TIMEOUT',
 
   // 配置错误
   INVALID_CONFIG = 'INVALID_CONFIG',
@@ -28,6 +39,8 @@ export enum TestErrorCode {
 
   // 报告错误
   REPORT_GENERATION_FAILED = 'REPORT_GENERATION_FAILED',
+  SCREENSHOT_FAILED = 'SCREENSHOT_FAILED',
+  VIDEO_RECORDING_FAILED = 'VIDEO_RECORDING_FAILED',
 
   // 通用错误
   UNKNOWN_ERROR = 'UNKNOWN_ERROR',
@@ -265,10 +278,20 @@ export function getErrorSeverity(error: Error): 'critical' | 'high' | 'medium' |
       TestErrorCode.BROWSER_LAUNCH_FAILED,
       TestErrorCode.APPIUM_CONNECTION_FAILED,
       TestErrorCode.ENVIRONMENT_NOT_READY,
+      TestErrorCode.APP_CRASH,
+      TestErrorCode.DEVICE_NOT_FOUND,
     ];
     const highCodes = [
       TestErrorCode.PAGE_CRASH,
       TestErrorCode.TEST_TIMEOUT,
+      TestErrorCode.APP_INSTALL_FAILED,
+      TestErrorCode.APP_LAUNCH_FAILED,
+      TestErrorCode.ADB_COMMAND_FAILED,
+      TestErrorCode.AI_TIMEOUT,
+    ];
+    const lowCodes = [
+      TestErrorCode.SCREENSHOT_FAILED,
+      TestErrorCode.VIDEO_RECORDING_FAILED,
     ];
 
     if (criticalCodes.includes(error.code)) {
@@ -276,6 +299,9 @@ export function getErrorSeverity(error: Error): 'critical' | 'high' | 'medium' |
     }
     if (highCodes.includes(error.code)) {
       return 'high';
+    }
+    if (lowCodes.includes(error.code)) {
+      return 'low';
     }
   }
   return 'medium';

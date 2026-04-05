@@ -12,6 +12,7 @@ import { remote, type Browser } from 'webdriverio';
  */
 export interface AppCommandOptions {
   package?: string;
+  activity?: string;
   type?: 'smoke' | 'full' | 'regression' | 'performance' | 'stability' | 'monkey';
   timeout?: number;
   device?: string;
@@ -19,6 +20,7 @@ export interface AppCommandOptions {
   quiet?: boolean;
   noAi?: boolean;
   report?: string;
+  reinstall?: boolean;
 }
 
 /**
@@ -31,10 +33,12 @@ export function createAppCommand(): Command {
     .description('测试 APP（提供 APK 路径或包名）')
     .argument('[apk-path]', 'APK 文件路径')
     .option('--package <name>', '已安装的包名（代替 APK 路径）')
+    .option('--activity <name>', '主 Activity 名称（如 .MainActivity）')
     .option('--type <type>', '测试类型：smoke, full, regression, performance, stability, monkey', 'smoke')
     .option('--timeout <minutes>', '超时时间（分钟）', '30')
     .option('--device <id>', '指定设备 ID')
     .option('--report <formats>', '报告格式，逗号分隔：html,json,markdown', 'html')
+    .option('--reinstall', '重新安装应用（覆盖已安装版本）')
     .action(async (apkPath: string | undefined, options: AppCommandOptions) => {
       // 如果没有提供 APK 路径或包名，交互式提问
       if (!apkPath && !options.package) {
@@ -186,14 +190,15 @@ async function executeAppTest(apkPath: string | undefined, options: AppCommandOp
 
     // 获取 APK 信息
     let packageName = options.package;
-    let mainActivity = '';
+    let mainActivity = options.activity || '';
     let apkSize = 0;
 
     if (apkPath) {
       console.log(chalk.blue('\n📦 读取 APK 信息...'));
       const apkInfo = await deviceManager.getApkInfo(apkPath);
       packageName = apkInfo.packageName || packageName;
-      mainActivity = apkInfo.mainActivity || '';
+      // 使用命令行指定的 Activity，如果没有则使用 APK 中的
+      mainActivity = options.activity || apkInfo.mainActivity || '';
       apkSize = apkInfo.size;
       console.log(chalk.green(`  ✓ 包名：${packageName}`));
       console.log(chalk.green(`  ✓ 主 Activity: ${mainActivity || '自动检测'}`));

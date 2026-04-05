@@ -244,12 +244,14 @@ export class AiClient {
     }
 
     const startTime = Date.now();
+    const timeout = this.config.timeout;
 
     // 转换消息格式
     const systemMessage = messages.find(m => m.role === 'system');
     const conversationMessages = messages.filter(m => m.role !== 'system');
 
-    const response = await this.anthropicClient.messages.create({
+    // 使用 Promise.race 添加超时保护
+    const responsePromise = this.anthropicClient.messages.create({
       model: this.config.model,
       max_tokens: maxTokens,
       temperature,
@@ -259,6 +261,12 @@ export class AiClient {
         content: this.convertContentAnthropic(m.content),
       })) as AnthropicMessageParam[],
     });
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`Anthropic API 请求超时 (${timeout}ms)`)), timeout);
+    });
+
+    const response = await Promise.race([responsePromise, timeoutPromise]);
 
     // 提取文本内容
     let content = '';
@@ -295,6 +303,7 @@ export class AiClient {
     }
 
     const startTime = Date.now();
+    const timeout = this.config.timeout;
 
     // 转换消息格式
     const openaiMessages = messages.map(m => ({
@@ -302,13 +311,20 @@ export class AiClient {
       content: typeof m.content === 'string' ? m.content : this.convertContentOpenAI(m.content),
     })) as unknown as OpenAI.ChatCompletionMessageParam[];
 
-    const response = await this.openaiClient.chat.completions.create({
+    // 使用 Promise.race 添加超时保护
+    const responsePromise = this.openaiClient.chat.completions.create({
       model: this.config.model,
       max_tokens: maxTokens,
       temperature,
       messages: openaiMessages,
       response_format: options.responseFormat === 'json' ? { type: 'json_object' } : undefined,
     });
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`OpenAI API 请求超时 (${timeout}ms)`)), timeout);
+    });
+
+    const response = await Promise.race([responsePromise, timeoutPromise]);
 
     const choice = response.choices[0];
     const content = choice?.message?.content || '';

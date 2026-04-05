@@ -833,6 +833,8 @@ export class ExplorationRunner extends EventEmitter {
    * 通过检查 DOM 变化、网络状态和 loading 元素来判断页面是否稳定
    */
   private async waitForPageStable(maxWaitMs: number): Promise<void> {
+    if (!this.page) return;
+
     const pollInterval = 100;
     const startTime = Date.now();
 
@@ -841,6 +843,8 @@ export class ExplorationRunner extends EventEmitter {
     let stableCount = 0;
 
     while (Date.now() - startTime < maxWaitMs) {
+      if (!this.page) return;
+
       // 检查是否有 loading 状态
       const isLoading = await this.page.evaluate(() => {
         const loadingSelectors = [

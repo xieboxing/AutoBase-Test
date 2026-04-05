@@ -200,14 +200,17 @@ class SqlJsAdapter implements DatabaseAdapter {
   close(): void {
     if (this.open) {
       // 同步保存数据库到文件（sql.js 需要在关闭前保存）
-      try {
-        const data = this.db.export();
-        const buffer = Buffer.from(data);
-        // 使用同步写入确保数据保存完成
-        fsSync.writeFileSync(this.dbPath, buffer);
-      } catch (error) {
-        // 忽略保存错误，但记录日志
-        console.warn(`保存数据库文件失败: ${error instanceof Error ? error.message : String(error)}`);
+      // 仅对非内存数据库进行保存
+      if (this.dbPath !== ':memory:') {
+        try {
+          const data = this.db.export();
+          const buffer = Buffer.from(data);
+          // 使用同步写入确保数据保存完成
+          fsSync.writeFileSync(this.dbPath, buffer);
+        } catch (error) {
+          // 忽略保存错误，但记录日志
+          console.warn(`保存数据库文件失败: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
       this.db.close();
       this.open = false;

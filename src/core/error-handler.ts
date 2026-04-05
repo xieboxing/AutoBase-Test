@@ -182,7 +182,11 @@ export function setupGlobalErrorHandler(): void {
     console.error('❌ 未处理的 Promise 拒绝:');
     console.error('  原因:', reason);
     console.error('  Promise:', promise);
-    // 记录但不退出，让程序有机会优雅处理
+    // 未处理的 Promise 拒绝是严重错误，应该退出以避免僵尸进程
+    // 给日志写入和清理工作足够时间（2秒）
+    setTimeout(() => {
+      process.exit(1);
+    }, 2000);
   });
 
   // 优雅清理函数

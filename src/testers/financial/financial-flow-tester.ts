@@ -3,7 +3,7 @@
  * 执行金融 APP 的核心业务流程测试
  */
 
-import type { Browser as WebdriverIOBrowser } from 'webdriverio';
+import type { Browser as WebdriverIOBrowser, Element as WebdriverIOElement } from 'webdriverio';
 import type {
   FinancialAppConfig,
   FlowStepResult,
@@ -760,14 +760,14 @@ export class FinancialFlowTester {
   /**
    * 查找元素
    */
-  private async findElement(locator: ElementLocator): Promise<WebdriverIOBrowser['$'] extends (...args: any[]) => Promise<infer R> ? R : never> {
+  private async findElement(locator: ElementLocator): Promise<WebdriverIOElement> {
     const selector = this.buildSelector(locator);
 
     // 尝试主定位器
     try {
       const element = await this.driver.$(selector);
       await element.waitForExist({ timeout: locator.timeout || 10000 });
-      return element as any;
+      return element;
     } catch (error) {
       // 尝试备用定位器
       if (locator.fallback && locator.fallback.length > 0) {
@@ -777,7 +777,7 @@ export class FinancialFlowTester {
             const element = await this.driver.$(fallbackSelector);
             await element.waitForExist({ timeout: fallbackLocator.timeout || 5000 });
             logger.ai(`🤖 使用备用定位器成功: ${fallbackLocator.value}`);
-            return element as any;
+            return element;
           } catch {
             continue;
           }

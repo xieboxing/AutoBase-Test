@@ -8,6 +8,7 @@ import type {
 } from '@/types/crawler.types.js';
 import { logger } from '@/core/logger.js';
 import { TestEventType, eventBus } from '@/core/event-bus.js';
+import { registerBrowser, closeBrowser } from '@/testers/web/browser-manager.js';
 
 /**
  * 默认爬虫配置
@@ -90,6 +91,7 @@ function shouldExclude(url: string, patterns: (string | RegExp)[]): boolean {
 export class WebCrawler extends EventEmitter {
   private config: CrawlerConfig;
   private browser: Browser | null = null;
+  private browserId: string | null = null;
   private visitedUrls: Set<string> = new Set();
   private pages: CrawledPage[] = [];
   private errors: CrawlerError[] = [];
@@ -131,6 +133,9 @@ export class WebCrawler extends EventEmitter {
         '--no-sandbox',
       ],
     });
+
+    // 注册到浏览器管理器，确保资源能被正确清理
+    this.browserId = registerBrowser(this.browser);
 
     try {
       // BFS 爬取
@@ -441,6 +446,15 @@ export class WebCrawler extends EventEmitter {
       } catch (error) {
         logger.warn('关闭爬虫浏览器失败', { error: String(error) });
       } finally {
+        // 从管理器注销（如果已注册）
+        if (this.browserId) {
+          try {
+            closeBrowser(this.browserId);
+          } catch {
+            // 忽略注销错误
+          }
+          this.browserId = null;
+        }
         this.browser = null;
       }
     }

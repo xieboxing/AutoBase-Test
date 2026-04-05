@@ -6,20 +6,10 @@
 import { logger } from '@/core/logger.js';
 
 /**
- * WebdriverIO Browser 类型（用于 APP 自动化）
- * 使用 any 类型避免对 webdriverio 的强依赖
+ * WebdriverIO Browser 和 Element 类型（用于 APP 自动化）
+ * 使用 webdriverio 的实际类型
  */
-type WebdriverIOBrowser = any; // eslint-disable-line @typescript-eslint/no-explicit-any
-
-/**
- * WebdriverIO Element 类型（用于 APP 自动化）
- */
-interface WebdriverIOElement {
-  isDisplayed: () => Promise<boolean>;
-  waitForExist: (opts: { timeout: number }) => Promise<boolean>;
-  waitForDisplayed: (opts: { timeout: number }) => Promise<void>;
-  click: () => Promise<void>;
-}
+import type { Browser as WebdriverIOBrowser, Element as WebdriverIOElement } from 'webdriverio';
 
 /**
  * 等待配置

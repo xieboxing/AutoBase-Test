@@ -4,7 +4,7 @@
  * 第二轮增强：集成 OCR 和 AI 能力
  */
 
-import type { Browser as WebdriverIOBrowser } from 'webdriverio';
+import type { Browser as WebdriverIOBrowser, Element as WebdriverIOElement } from 'webdriverio';
 import type {
   PageConfig,
   PageInspectionResult,
@@ -1074,7 +1074,7 @@ ${issueDescriptions}
   /**
    * 查找元素
    */
-  private async findElement(locator: ElementLocator): Promise<ReturnType<WebdriverIOBrowser['$']>> {
+  private async findElement(locator: ElementLocator): Promise<WebdriverIOElement> {
     const selector = this.buildSelector(locator);
     return await this.driver.$(selector);
   }

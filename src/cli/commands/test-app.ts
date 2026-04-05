@@ -281,8 +281,8 @@ async function executeAppTest(apkPath: string | undefined, options: AppCommandOp
       const launchResult = await deviceManager.launchApp(deviceId, packageName, mainActivity || undefined);
       const launchDuration = Date.now() - launchStart;
 
-      // 等待应用完全启动（使用配置的超时）
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // 等待应用完全启动（使用智能等待轮询检查）
+      await waitForAppReady(deviceId, packageName, deviceManager, 5000);
 
       // 截图
       let screenshotPath = '';
@@ -356,23 +356,23 @@ async function executeAppTest(apkPath: string | undefined, options: AppCommandOp
           await driver.connect();
           console.log(chalk.green('  ✓ Appium 连接成功'));
 
-          // 等待页面加载
-          await new Promise(resolve => setTimeout(resolve, 2000));
-
-          // 尝试获取当前页面元素
+          // 智能等待页面加载完成（轮询检查元素）
           let elementCount = 0;
-          try {
-            const elements = await driver.$$('*');
-            elementCount = elements.length;
-          } catch {
-            // 如果无法获取元素，尝试等待
-            await new Promise(resolve => setTimeout(resolve, 3000));
+          const maxWaitTime = 5000;
+          const pollInterval = 500;
+          const startTime = Date.now();
+
+          while (Date.now() - startTime < maxWaitTime) {
             try {
               const elements = await driver.$$('*');
               elementCount = elements.length;
+              if (elementCount > 0) {
+                break;
+              }
             } catch {
-              elementCount = 0;
+              // 继续等待
             }
+            await new Promise(resolve => setTimeout(resolve, pollInterval));
           }
 
           // 截图
@@ -493,4 +493,41 @@ async function executeAppTest(apkPath: string | undefined, options: AppCommandOp
       }
     }
   }
+}
+
+/**
+ * 智能等待应用就绪
+ * 使用轮询检查应用进程状态，而非固定等待
+ */
+async function waitForAppReady(
+  deviceId: string,
+  packageName: string,
+  deviceManager: typeof import('@/utils/device.js').deviceManager,
+  timeout: number = 5000
+): Promise<void> {
+  const startTime = Date.now();
+  const pollInterval = 200;
+
+  while (Date.now() - startTime < timeout) {
+    try {
+      const output = await deviceManager.shell(
+        deviceId,
+        `pidof ${packageName}`
+      );
+
+      // 如果 pidof 返回非空，说明进程存在
+      if (output.trim()) {
+        // 再等待一小段时间确保应用完全初始化
+        await new Promise(resolve => setTimeout(resolve, 500));
+        return;
+      }
+    } catch {
+      // 忽略错误，继续等待
+    }
+
+    await new Promise(resolve => setTimeout(resolve, pollInterval));
+  }
+
+  // 超时后继续，不阻塞测试
+  logger.warn(`等待应用就绪超时 (${timeout}ms)`);
 }

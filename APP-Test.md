@@ -21,6 +21,7 @@
 - [12. 推荐 AI 执行顺序](#12-推荐-ai-执行顺序)
 - [13. 失败排查建议](#13-失败排查建议)
 - [14. 已知限制](#14-已知限制)
+- [15. CFD 计算准确性验证流程](#15-cfd-计算准确性验证流程)
 
 ---
 
@@ -473,6 +474,105 @@ SLICKORPS_PASSWORD=test_password
 
 ---
 
+## 15. CFD 计算准确性验证流程
+
+### 15.1 概述
+
+金融 APP 交易功能涉及复杂的 CFD（差价合约）计算，为确保 APP 显示的计算结果准确无误，平台提供「截图验证 → 方法调用 → 问题反馈」的标准化测试流程。
+
+### 15.2 核心计算模块
+
+```
+src/calculation/
+├── cfd-calculations.ts      # CFD 计算核心模块
+```
+
+### 15.3 验证流程步骤
+
+**测试执行流程（按顺序操作）：**
+
+| 测试节点 | 操作要求 | 验证方法 |
+|----------|----------|----------|
+| 下单前 | 截图保存订单参数（品种、手数、杠杆、价格等） | 调用 `calculateRequiredMargin` 方法，对比 APP 显示的保证金值 |
+| 下单后 | 截图保存「持仓明细」页面（含占用保证金、浮动盈亏） | 调用 `calculateRequiredMargin` + `calculateFloatingPnL` 方法，对比 APP 显示值 |
+| 平仓后 | 截图保存「平仓记录」页面（含平仓价格、实际盈亏） | 调用 `calculateClosedPnL` 方法，对比 APP 显示的平仓盈亏值 |
+
+### 15.4 问题反馈机制
+
+当计算结果不一致时，需记录以下信息：
+
+| 字段 | 说明 | 示例 |
+|------|------|------|
+| 截图标识 | 截图文件名或路径 | `screenshots/zh-CN/trading-order.png` |
+| 计算方法 | 调用的具体方法名 | `calculateRequiredMargin` |
+| APP 显示值 | APP 页面上显示的数值 | `保证金: 70.75 USD` |
+| 方法计算值 | 调用方法得到的数值 | `{ margin: 70.75, formula: "..." }` |
+| 差异详情 | 具体的数值差异 | `APP: 70.75, 计算: 71.20, 差异: 0.45 USD` |
+| 初步分析 | 可能的问题原因 | `汇率参数差异、合约单位配置不同、四舍五入精度` |
+
+### 15.5 核心计算方法清单
+
+| 方法名 | 功能 | 必填参数 | 输出 |
+|--------|------|----------|------|
+| `calculateRequiredMargin` | 保证金计算 | productType, lotSize, contractSize, leverage, openPrice | MarginResult |
+| `calculateFloatingPnL` | 浮动盈亏计算 | direction, lotSize, contractSize, openPrice, currentBid/AskPrice | PnLResult |
+| `calculateClosedPnL` | 平仓盈亏计算 | direction, lotSize, contractSize, openPrice, closePrice | PnLResult |
+| `calculateExpectedPnL` | 预计盈亏计算 | direction, lotSize, contractSize, openPrice, inputPrice | PnLResult |
+| `calculateSpreadCost` | 点差成本计算 | direction, lotSize, contractSize, openPrice, spreadBid/AskPrice | PnLResult |
+| `calculateSwap` | 隔夜利息计算 | productType, lotSize, contractSize, closePriceForSwap, swapRate | SwapResult |
+| `calculateMarginLevel` | 保证金水平 | equity, totalUsedMargin | AccountResult |
+| `calculateEquity` | 净值计算 | deposit, withdrawal, totalClosedNetPnL, totalFloatingNetPnL | AccountResult |
+| `calculateAvailableBalance` | 可用余额 | equity, totalUsedMargin | AccountResult |
+| `detectProductType` | 产品类型识别 | symbol | CFDProductType |
+
+### 15.6 参数获取来源
+
+| 参数 | 获取方式 |
+|------|----------|
+| productType | 根据品种代码调用 `detectProductType('EURUSD')` 自动识别 |
+| lotSize | APP 下单页面显示的手数 |
+| contractSize | APP 配置或默认值（外汇: 100000, 黄金: 100） |
+| leverage | APP 账户设置或品种详情页 |
+| openPrice | APP 下单时的开仓价格 |
+| closePrice | APP 平仓记录页显示的平仓价格 |
+| baseCurrencyToUsdRate | 外汇汇率（基础货币兑美元） |
+| quoteCurrencyToUsdRate | 计价货币兑美元汇率 |
+
+### 15.7 容差设置
+
+由于 APP 显示值可能存在四舍五入差异，建议设置容差：
+
+| 计算类型 | 容差范围 |
+|----------|----------|
+| 保证金 | ±0.5% 或 ±1 USD |
+| 盈亏计算 | ±0.5% 或 ±5 USD |
+| 隔夜利息 | ±1% 或 ±0.5 USD |
+
+### 15.8 验证报告格式
+
+在测试报告中新增「CFD 计算验证」章节：
+
+```
+## CFD 计算准确性验证
+
+### 保证金计算验证
+| 品种 | 手数 | APP显示 | 方法计算 | 差异 | 状态 |
+|------|------|---------|----------|------|------|
+| EUR/USD | 0.03 | 70.75 | 70.75 | 0 | ✅ 通过 |
+
+### 浮动盈亏验证
+| 品种 | 方向 | APP显示 | 方法计算 | 差异 | 状态 |
+|------|------|---------|----------|------|------|
+| EUR/USD | BUY | +19200 | +19200 | 0 | ✅ 通过 |
+
+### 平仓盈亏验证
+| 品种 | 方向 | APP显示 | 方法计算 | 差异 | 状态 |
+|------|------|---------|----------|------|------|
+| EUR/USD | BUY | +19200 | +19200 | 0 | ✅ 通过 |
+```
+
+---
+
 ## 附录：命令速查表
 
 | 命令 | 说明 |
@@ -486,4 +586,4 @@ SLICKORPS_PASSWORD=test_password
 
 ---
 
-*文档版本：1.2.0 | 更新时间：2026-04-05 | 第二轮增强已完成*
+*文档版本：1.3.0 | 更新时间：2026-04-05 | 新增 CFD 计算准确性验证流程*

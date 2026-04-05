@@ -490,3 +490,153 @@ const ocrConfig = {
 - 性能监控和分析
 - iOS APP 支持
 - 更丰富的检查规则
+
+---
+
+## CFD 计算准确性验证流程（新增）
+
+### 模块位置
+
+```
+src/calculation/
+├── cfd-calculations.ts      # CFD 计算核心模块（包含所有计算方法）
+```
+
+### 核心计算方法清单
+
+| 方法名 | 功能 | 必填参数 | 输出 |
+|--------|------|----------|------|
+| `calculateRequiredMargin` | 保证金计算 | productType, lotSize, contractSize, leverage, openPrice | MarginResult |
+| `calculateFloatingPnL` | 浮动盈亏计算 | direction, lotSize, contractSize, openPrice, currentBid/AskPrice | PnLResult |
+| `calculateClosedPnL` | 平仓盈亏计算 | direction, lotSize, contractSize, openPrice, closePrice | PnLResult |
+| `calculateExpectedPnL` | 预计盈亏计算 | direction, lotSize, contractSize, openPrice, inputPrice | PnLResult |
+| `calculateSpreadCost` | 点差成本计算 | direction, lotSize, contractSize, openPrice, spreadBid/AskPrice | PnLResult |
+| `calculateSwap` | 隔夜利息计算 | productType, lotSize, contractSize, closePriceForSwap, swapRate | SwapResult |
+| `calculateMarginLevel` | 保证金水平 | equity, totalUsedMargin | AccountResult |
+| `calculateEquity` | 净值计算 | deposit, withdrawal, totalClosedNetPnL, totalFloatingNetPnL | AccountResult |
+| `calculateAvailableBalance` | 可用余额 | equity, totalUsedMargin | AccountResult |
+| `detectProductType` | 产品类型识别 | symbol | CFDProductType |
+
+### 验证流程步骤
+
+**测试执行流程：**
+
+| 测试节点 | 操作要求 | 验证方法 |
+|----------|----------|----------|
+| 下单前 | 截图保存订单参数（品种、手数、杠杆、价格等） | 调用 `calculateRequiredMargin`，对比 APP 显示的保证金值 |
+| 下单后 | 截图保存「持仓明细」页面（含占用保证金、浮动盈亏） | 调用 `calculateRequiredMargin` + `calculateFloatingPnL`，对比 APP 显示值 |
+| 平仓后 | 截图保存「平仓记录」页面（含平仓价格、实际盈亏） | 谬用 `calculateClosedPnL`，对比 APP 显示的平仓盈亏值 |
+
+### 问题反馈机制
+
+当计算结果不一致时，需记录以下信息：
+
+| 字段 | 说明 | 示例 |
+|------|------|------|
+| 截图标识 | 截图文件名或路径 | `screenshots/zh-CN/trading-order.png` |
+| 计算方法 | 调用的具体方法名 | `calculateRequiredMargin` |
+| APP 显示值 | APP 页面上显示的数值 | `保证金: 70.75 USD` |
+| 方法计算值 | 调用方法得到的数值 | `{ margin: 70.75, formula: "..." }` |
+| 差异详情 | 具体的数值差异 | `APP: 70.75, 计算: 71.20, 差异: 0.45 USD` |
+| 初步分析 | 可能的问题原因 | `汇率参数差异、合约单位配置不同、四舍五入精度` |
+
+### 方法调用示例
+
+```typescript
+import { CFD, CFDProductType, TradeDirection } from '@/calculation/cfd-calculations';
+
+// 保证金计算示例（外汇 EUR/USD）
+const marginResult = CFD.calculateRequiredMargin({
+  productType: CFDProductType.FOREX,
+  direction: TradeDirection.BUY,
+  lotSize: 0.03,
+  contractSize: 100000,
+  leverage: 50,
+  openPrice: 1.17910,
+  baseCurrencyToUsdRate: 1.17910
+});
+// 输出: { margin: 70.75, formula: "保证金 = 0.03 × 100000 ÷ 50 × 1.17910 = 70.75 USD" }
+
+// 浮动盈亏计算示例
+const floatingPnL = CFD.calculateFloatingPnL({
+  productType: CFDProductType.FOREX,
+  direction: TradeDirection.BUY,
+  lotSize: 2,
+  contractSize: 100000,
+  openPrice: 1.2088,
+  currentAskPrice: 1.3048,
+  quoteCurrencyToUsdRate: 1
+});
+// 输出: { pnl: 19200, formula: "...", direction: "BUY" }
+
+// 平仓盈亏计算示例
+const closedPnL = CFD.calculateClosedPnL({
+  productType: CFDProductType.FOREX,
+  direction: TradeDirection.BUY,
+  lotSize: 2,
+  contractSize: 100000,
+  openPrice: 1.2088,
+  closePrice: 1.3048,
+  quoteCurrencyToUsdRate: 1
+});
+// 输出: { pnl: 19200, formula: "...", direction: "BUY" }
+```
+
+### 参数获取来源
+
+| 参数 | 获取方式 |
+|------|----------|
+| productType | 根据品种代码调用 `detectProductType('EURUSD')` 自动识别 |
+| lotSize | APP 下单页面显示的手数 |
+| contractSize | APP 配置或默认值（外汇: 100000, 黄金: 100） |
+| leverage | APP 账户设置或品种详情页 |
+| openPrice | APP 下单时的开仓价格 |
+| closePrice | APP 平仓记录页显示的平仓价格 |
+| baseCurrencyToUsdRate | 外汇汇率（基础货币兑美元） |
+| quoteCurrencyToUsdRate | 计价货币兑美元汇率 |
+
+### 验证报告格式
+
+在测试报告中新增「CFD 计算验证」章节：
+
+```
+## CFD 计算准确性验证
+
+### 保证金计算验证
+| 品种 | 手数 | APP显示 | 方法计算 | 差异 | 状态 |
+|------|------|---------|----------|------|------|
+| EUR/USD | 0.03 | 70.75 | 70.75 | 0 | ✅ 通过 |
+
+### 浮动盈亏验证
+| 品种 | 方向 | APP显示 | 方法计算 | 差异 | 状态 |
+|------|------|---------|----------|------|------|
+| EUR/USD | BUY | +19200 | +19200 | 0 | ✅ 通过 |
+
+### 平仓盈亏验证
+| 品种 | 方向 | APP显示 | 方法计算 | 差异 | 状态 |
+|------|------|---------|----------|------|------|
+| EUR/USD | BUY | +19200 | +19200 | 0 | ✅ 通过 |
+```
+
+### 容差设置
+
+由于 APP 显示值可能存在四舍五入差异，建议设置容差：
+
+| 计算类型 | 容差范围 |
+|----------|----------|
+| 保证金 | ±0.5% 或 ±1 USD |
+| 盈亏计算 | ±0.5% 或 ±5 USD |
+| 隔夜利息 | ±1% 或 ±0.5 USD |
+
+### CLI 命令扩展（计划）
+
+```bash
+# CFD 计算验证（计划）
+npx autotest cfd-verify ./app.apk --config ./configs/financial/xxx.json
+
+# 仅验证保证金
+npx autotest cfd-verify ./app.apk --type margin
+
+# 仅验证盈亏
+npx autotest cfd-verify ./app.apk --type pnl
+```

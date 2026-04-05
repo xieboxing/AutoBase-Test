@@ -476,23 +476,34 @@ ${JSON.stringify(elementsSummary, null, 2)}
    * 解析 AI 候选
    */
   private parseAiCandidates(content: string): ElementCandidate[] {
+    // AI 返回的候选对象结构
+    interface AiCandidateResponse {
+      selector: string;
+      score?: number;
+      reason?: string;
+    }
+
+    interface AiParsedResponse {
+      candidates?: AiCandidateResponse[];
+    }
+
     try {
-      const parsed = JSON.parse(content);
-      return parsed.candidates?.map((c: any) => ({
+      const parsed: AiParsedResponse = JSON.parse(content);
+      return parsed.candidates?.map((c: AiCandidateResponse) => ({
         selector: c.selector,
         score: c.score || 0.5,
-        matchType: 'ai',
+        matchType: 'ai' as const,
         description: c.reason || '',
       })) || [];
     } catch {
       // 尝试提取 JSON
       const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
       if (jsonMatch && jsonMatch[1]) {
-        const parsed = JSON.parse(jsonMatch[1]);
-        return parsed.candidates?.map((c: any) => ({
+        const parsed: AiParsedResponse = JSON.parse(jsonMatch[1]);
+        return parsed.candidates?.map((c: AiCandidateResponse) => ({
           selector: c.selector,
           score: c.score || 0.5,
-          matchType: 'ai',
+          matchType: 'ai' as const,
           description: c.reason || '',
         })) || [];
       }

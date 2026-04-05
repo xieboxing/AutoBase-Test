@@ -24,6 +24,31 @@ export interface TestStepResult {
   errorMessage?: string;
   errorStack?: string;
   screenshot?: string;
+  timestamp?: string;
+}
+
+/**
+ * 创建测试步骤结果
+ */
+export function createTestStepResult(options: {
+  order: number;
+  action: string;
+  status: TestStatus;
+  durationMs: number;
+  target?: string;
+  errorMessage?: string;
+  screenshot?: string;
+}): TestStepResult {
+  return {
+    order: options.order,
+    action: options.action,
+    status: options.status,
+    durationMs: options.durationMs,
+    target: options.target,
+    errorMessage: options.errorMessage,
+    screenshot: options.screenshot,
+    timestamp: new Date().toISOString(),
+  };
 }
 
 /**
@@ -144,6 +169,66 @@ export interface AccessibilityViolation {
   help: string;
   helpUrl: string;
   nodes: string[];
+}
+
+/**
+ * 创建空的分类结果
+ */
+export function createEmptyCategoryResult(): CategoryResult {
+  return {
+    total: 0,
+    passed: 0,
+    failed: 0,
+    skipped: 0,
+    blocked: 0,
+    passRate: 0,
+    avgDurationMs: 0,
+  };
+}
+
+/**
+ * 创建空的性能测试结果
+ */
+export function createEmptyPerformanceResult(): PerformanceResult {
+  return {
+    ...createEmptyCategoryResult(),
+    metrics: {},
+  };
+}
+
+/**
+ * 创建空的安全测试结果
+ */
+export function createEmptySecurityResult(): SecurityResult {
+  return {
+    ...createEmptyCategoryResult(),
+    issues: [],
+  };
+}
+
+/**
+ * 创建空的无障碍测试结果
+ */
+export function createEmptyAccessibilityResult(): AccessibilityResult {
+  return {
+    ...createEmptyCategoryResult(),
+    violations: [],
+  };
+}
+
+/**
+ * 创建空的测试运行分类结果
+ */
+export function createEmptyCategories(): TestRunResult['categories'] {
+  return {
+    functional: createEmptyCategoryResult(),
+    visual: createEmptyCategoryResult(),
+    performance: createEmptyPerformanceResult(),
+    security: createEmptySecurityResult(),
+    accessibility: createEmptyAccessibilityResult(),
+    compatibility: createEmptyCategoryResult(),
+    stability: createEmptyCategoryResult(),
+  };
 }
 
 /**

@@ -762,6 +762,7 @@ export class KnowledgeDatabase {
 let dbInstance: KnowledgeDatabase | null = null;
 let initPromise: Promise<void> | null = null;
 let isInitializing: boolean = false;
+let initError: Error | null = null;
 
 /**
  * 检查数据库是否已初始化
@@ -772,29 +773,56 @@ export function isDatabaseInitialized(): boolean {
 
 /**
  * 获取数据库单例
- * 注意：调用此方法前应确保已调用 initializeDatabase()
- * 如果未初始化，会自动初始化一个默认实例（延迟初始化模式）
+ * 注意：此函数会返回数据库实例，但不保证初始化已完成
+ * 如果需要确保数据库已初始化，请使用 getDatabaseAsync() 或先调用 initializeDatabase()
  */
 export function getDatabase(config?: Partial<DatabaseConfig>): KnowledgeDatabase {
   if (!dbInstance) {
-    // 使用锁机制防止并发初始化
-    if (!isInitializing) {
+    // 自动初始化一个默认实例（延迟初始化模式）
+    // 但建议在生产环境中显式调用 initializeDatabase()
+    logger.warn('⚠️ 数据库单例在未显式初始化的情况下被访问，建议在启动时调用 initializeDatabase()');
+
+    // 同步创建实例（初始化是异步的）
+    dbInstance = new KnowledgeDatabase(config);
+
+    // 触发异步初始化（不等待）
+    if (!isInitializing && !initPromise) {
       isInitializing = true;
-      // 自动初始化一个默认实例（延迟初始化模式）
-      // 但建议在生产环境中显式调用 initializeDatabase()
-      dbInstance = new KnowledgeDatabase(config);
-      logger.warn('⚠️ 数据库单例在未显式初始化的情况下被访问，建议在启动时调用 initializeDatabase()');
-      // 异步初始化
       initPromise = dbInstance.initialize().then(() => {
         isInitializing = false;
       }).catch(err => {
         logger.error('数据库自动初始化失败', { error: String(err) });
+        initError = err instanceof Error ? err : new Error(String(err));
         initPromise = null;
         isInitializing = false;
       });
     }
   }
-  return dbInstance!;
+  return dbInstance;
+}
+
+/**
+ * 异步获取已初始化的数据库单例
+ * 确保数据库已完全初始化后再返回
+ */
+export async function getDatabaseAsync(config?: Partial<DatabaseConfig>): Promise<KnowledgeDatabase> {
+  // 如果已有错误，抛出
+  if (initError) {
+    throw initError;
+  }
+
+  // 如果正在初始化，等待完成
+  if (isInitializing && initPromise) {
+    await initPromise;
+  }
+
+  // 如果已有实例且已初始化，直接返回
+  if (dbInstance && dbInstance['db']) {
+    return dbInstance;
+  }
+
+  // 需要初始化
+  return initializeDatabase(config);
 }
 
 /**
@@ -802,12 +830,14 @@ export function getDatabase(config?: Partial<DatabaseConfig>): KnowledgeDatabase
  * 必须在调用 getDatabase() 后调用此方法以确保数据库已就绪
  */
 export async function waitForInitialization(): Promise<void> {
+  // 如果有错误，抛出
+  if (initError) {
+    throw initError;
+  }
+
   // 如果正在初始化，等待完成
-  while (isInitializing && initPromise) {
+  if (isInitializing && initPromise) {
     await initPromise;
-    // 再次检查，防止竞态条件
-    if (!isInitializing) break;
-    await new Promise(resolve => setTimeout(resolve, 10));
   }
 
   // 如果数据库实例存在但未初始化，等待初始化完成
@@ -829,11 +859,18 @@ export async function waitForInitialization(): Promise<void> {
  * 推荐在应用启动时调用此方法
  */
 export async function initializeDatabase(config?: Partial<DatabaseConfig>): Promise<KnowledgeDatabase> {
+  // 如果有之前的错误，清除
+  initError = null;
+
   // 如果正在初始化，等待完成
   if (isInitializing && initPromise) {
     await initPromise;
     if (dbInstance && dbInstance['db']) {
       return dbInstance;
+    }
+    // 如果等待后仍未初始化成功，检查错误
+    if (initError) {
+      throw initError;
     }
   }
 
@@ -850,6 +887,9 @@ export async function initializeDatabase(config?: Partial<DatabaseConfig>): Prom
     initPromise = dbInstance.initialize();
     await initPromise;
     return dbInstance;
+  } catch (error) {
+    initError = error instanceof Error ? error : new Error(String(error));
+    throw initError;
   } finally {
     isInitializing = false;
     initPromise = null;

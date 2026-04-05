@@ -11,3 +11,5 @@ export { createScheduleCommand } from './schedule.js';
 export { createSetupCommand } from './setup.js';
 export { createVisualCommand } from './visual.js';
 export { createExploreCommand } from './explore.js';
+export { createFinancialCommand } from './test-financial.js';
+export { createProbeCommand } from './probe.js';

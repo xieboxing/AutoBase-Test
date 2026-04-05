@@ -116,3 +116,7 @@ test-suites/*/config.json
 
 # ===== 敏感测试数据 =====
 test-suites/test-project/
+
+# ===== 私有文档（敏感信息）=====
+docs/private/*.md
+!docs/private/README.md

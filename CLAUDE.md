@@ -298,3 +298,195 @@ npm run build
 - [ ] 新增代码有 JSDoc 注释
 - [ ] 新增功能有降级方案（AI 相关）
 - [ ] 数据库变更有迁移脚本
+
+---
+
+## 金融 APP 流程测试（新增）
+
+### 模块位置
+
+```
+src/testers/financial/
+├── index.ts                 # 模块导出
+├── page-inspector.ts        # 页面巡检器
+├── financial-flow-tester.ts # 金融流程测试器
+└── language-runner.ts       # 多语言循环执行器
+
+src/types/financial.types.ts # 金融测试类型定义
+src/config/financial-config.ts # 金融配置加载验证
+src/reporters/financial-report.ts # 金融测试报告生成器
+src/cli/commands/test-financial.ts # CLI 命令入口
+
+configs/financial/           # 金融 APP 配置文件
+docs/templates/              # 金融 APP 测试文档模板
+```
+
+### CLI 命令
+
+```bash
+# 金融流程测试
+npx autotest financial ./app.apk --config ./configs/financial/xxx.json
+
+# 指定语言
+npx autotest financial ./app.apk --config ./configs/financial/xxx.json --languages zh-CN,en-US
+
+# 跳过交易
+npx autotest financial ./app.apk --config ./configs/financial/xxx.json --skip-trading
+```
+
+### 配置文件约定
+
+1. **位置**：`configs/financial/{app-name}.json`
+2. **账号密码**：通过环境变量管理，配置文件只写环境变量名
+3. **定位器**：支持主定位器 + fallback 备用定位器
+4. **待补充标记**：不确定的定位器用 `(待补充)` 标记
+
+### 页面巡检逻辑
+
+页面巡检器在每个页面执行以下检查：
+
+**第一轮基础检查：**
+1. 自动截图
+2. 保存 Page Source / UI XML
+3. 提取页面文本
+4. 执行规则检测：
+   - 页面空白检测
+   - 关键元素缺失
+   - 未翻译 Key
+   - 中英文混杂
+   - 占位符未替换
+   - 乱码
+   - 文本截断
+   - 元素重叠
+   - 按钮遮挡
+
+**第二轮增强检查：**
+5. OCR 文本识别（可选，需配置 OCR 服务）
+6. OCR 与 DOM 文本对比检测渲染问题
+7. 问题区域标注截图（颜色框标注）
+8. 置信度评分（综合多种证据）
+9. 问题去重和聚类
+10. AI 视觉分析（可选，需配置 AI API）
+
+### 多语言执行逻辑
+
+1. 读取配置中的支持语言列表
+2. 按顺序切换语言
+3. 每个语言完整重新执行主流程
+4. 生成按语言分组的报告
+5. 可选择是否恢复默认语言
+
+### 报告生成
+
+报告位置：`data/reports/financial-{timestamp}/`
+
+包含：
+- 测试概览（设备、APK、时间）
+- 主流程结果表格
+- 按语言展示的详细结果
+- 页面巡检结果（截图、问题列表）
+- 问题列表（按严重级别排序）
+- 交易结果（开仓、持仓、平仓、余额验证）
+- 整体评估（通过率、风险等级）
+
+### 新增 APP 时必须更新的文件
+
+| 文件 | 说明 |
+|------|------|
+| `configs/financial/{app}.json` | APP 配置文件（复制 slickorps.demo.json 作为模板） |
+| `docs/{APP}测试文档.md` | APP 业务测试文档（复制 docs/templates/金融APP测试文档模板.md） |
+| `.env` | 账号密码环境变量 |
+
+### 文档模板位置
+
+新增 APP 测试文档时，使用以下模板：
+
+```
+docs/templates/金融APP测试文档模板.md
+```
+
+### AI 在这个仓库中的正确工作方式
+
+1. **先读 APP-Test.md**：了解平台能力、测试流程、配置方式
+2. **再读 CLAUDE.md**（本文档）：了解仓库结构、核心模块、开发规范
+3. **再根据任务定位 docs/某个APP测试文档.md**：了解具体 APP 的业务测试要求
+4. **再查看 configs/ 对应配置**：了解具体 APP 的定位器配置
+5. **执行测试命令**：根据配置执行测试
+
+### 如果真实 locator 不全
+
+1. 使用 `(待补充)` 标记在配置文件中
+2. 在测试文档中说明哪些定位器需要补充
+3. 提供定位器获取方法（Appium Inspector）
+4. 框架支持 fallback 定位器用于自愈
+
+### 第二轮已实现增强
+
+以下增强功能已实现：
+
+| 功能 | 模块 | 说明 |
+|------|------|------|
+| OCR 文本识别 | `src/utils/ocr.ts` | 支持 Tesseract.js、Google Vision、AI Vision |
+| 图片标注 | `src/utils/image-annotator.ts` | 在截图上标注问题区域 |
+| 问题分析器 | `src/testers/financial/issue-analyzer.ts` | 置信度评分、去重、聚类 |
+| 页面探测 | `src/cli/commands/probe.ts` | 发现元素、生成定位器建议 |
+
+### 第二轮新增 CLI 命令
+
+```bash
+# 页面探测（发现元素和定位器建议）
+npx autotest probe --app ./app.apk
+
+# 探测指定页面
+npx autotest probe --app ./app.apk --page "登录页"
+```
+
+### 第二轮新增模块位置
+
+```
+src/utils/
+├── ocr.ts                   # OCR 文本识别模块
+├── image-annotator.ts       # 图片标注模块
+
+src/testers/financial/
+├── issue-analyzer.ts        # 问题分析器（第二轮新增）
+
+src/cli/commands/
+├── probe.ts                 # 页面探测命令（第二轮新增）
+
+src/types/financial.types.ts # 新增 Round 2 类型定义
+```
+
+### OCR 使用说明
+
+OCR 支持多种后端，按优先级选择：
+
+1. **AI Vision（推荐）**：使用 Claude/GPT-4V 的视觉能力
+2. **Google Vision API**：需要配置 Google Cloud 凭证
+3. **AWS Textract**：需要配置 AWS 凭证
+4. **Tesseract.js**：本地 OCR，无需外部服务
+
+```typescript
+// OCR 配置示例
+const ocrConfig = {
+  enabled: true,
+  provider: 'ai-vision',  // 或 'tesseract'、'google-vision'
+  languages: ['zh-CN', 'en-US'],
+  minConfidence: 0.5,
+};
+```
+
+### 图片标注说明
+
+标注系统会：
+- 用红色框标注 P0 级别问题
+- 用橙色框标注 P1 级别问题
+- 用蓝色框标注 P2 级别问题
+- 用灰色框标注 P3 级别问题
+- 在框上显示问题类型标签
+
+### 未来第三轮扩展方向
+
+- 性能监控和分析
+- iOS APP 支持
+- 更丰富的检查规则

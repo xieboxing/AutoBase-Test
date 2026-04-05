@@ -16,6 +16,8 @@ import {
   createSetupCommand,
   createVisualCommand,
   createExploreCommand,
+  createFinancialCommand,
+  createProbeCommand,
 } from './commands/index.js';
 
 const program = new Command();
@@ -61,6 +63,8 @@ program.addCommand(createInitCommand());
 program.addCommand(createScheduleCommand());
 program.addCommand(createVisualCommand());
 program.addCommand(createExploreCommand());
+program.addCommand(createFinancialCommand());
+program.addCommand(createProbeCommand());
 
 // 清理命令（简单实现）
 program

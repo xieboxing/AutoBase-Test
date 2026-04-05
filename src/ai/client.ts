@@ -660,6 +660,13 @@ export function resetAiClient(): void {
 }
 
 /**
+ * 创建新的 AI 客户端
+ */
+export function createAiClient(config?: Partial<AiClientConfig>): AiClient {
+  return new AiClient(config);
+}
+
+/**
  * 快捷聊天函数
  */
 export async function aiChat(

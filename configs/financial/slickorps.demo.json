@@ -1,0 +1,608 @@
+{
+  "version": "1.0.0",
+  "app": {
+    "appName": "Slickorps",
+    "packageName": "com.slickorps.app",
+    "launchActivity": ".MainActivity",
+    "platform": "android",
+    "apkPath": "./slickorps.apk"
+  },
+  "login": {
+    "required": true,
+    "usernameLocator": {
+      "strategy": "xpath",
+      "value": "//android.widget.EditText[@hint='用户名' or @hint='账号' or @text='请输入用户名']",
+      "description": "用户名输入框（待补充实际定位器）",
+      "fallback": [
+        {
+          "strategy": "id",
+          "value": "username_input",
+          "description": "用户名输入框 ID 定位"
+        }
+      ]
+    },
+    "passwordLocator": {
+      "strategy": "xpath",
+      "value": "//android.widget.EditText[@hint='密码' or @text='请输入密码']",
+      "description": "密码输入框（待补充实际定位器）",
+      "fallback": [
+        {
+          "strategy": "id",
+          "value": "password_input",
+          "description": "密码输入框 ID 定位"
+        }
+      ]
+    },
+    "loginButtonLocator": {
+      "strategy": "xpath",
+      "value": "//android.widget.Button[contains(@text, '登录') or contains(@text, 'Login')]",
+      "description": "登录按钮（待补充实际定位器）",
+      "fallback": [
+        {
+          "strategy": "id",
+          "value": "login_button",
+          "description": "登录按钮 ID 定位"
+        }
+      ]
+    },
+    "successIndicator": {
+      "strategy": "xpath",
+      "value": "//android.widget.TextView[contains(@text, '首页') or contains(@text, 'Home') or contains(@text, '持仓')]",
+      "description": "登录成功指示元素（待补充实际定位器）",
+      "fallback": [
+        {
+          "strategy": "id",
+          "value": "home_title",
+          "description": "首页标题 ID 定位"
+        }
+      ]
+    },
+    "failureIndicator": {
+      "strategy": "xpath",
+      "value": "//android.widget.TextView[contains(@text, '错误') or contains(@text, '失败') or contains(@text, 'Error')]",
+      "description": "登录失败提示元素（可选）"
+    },
+    "usernameEnvKey": "SLICKORPS_USERNAME",
+    "passwordEnvKey": "SLICKORPS_PASSWORD",
+    "timeout": 30000,
+    "waitBefore": 2000,
+    "waitAfter": 3000
+  },
+  "pages": [
+    {
+      "id": "login",
+      "name": "登录页面",
+      "nameEn": "Login Page",
+      "identifier": {
+        "strategy": "xpath",
+        "value": "//android.widget.EditText[@hint='用户名' or @hint='账号']",
+        "description": "登录页面标识（待补充）"
+      },
+      "navigation": [],
+      "screenshot": true,
+      "textInspection": true,
+      "languageCheck": false,
+      "level": "core",
+      "criticalElements": [
+        {
+          "strategy": "xpath",
+          "value": "//android.widget.EditText[@hint='用户名']",
+          "description": "用户名输入框"
+        },
+        {
+          "strategy": "xpath",
+          "value": "//android.widget.EditText[@hint='密码']",
+          "description": "密码输入框"
+        },
+        {
+          "strategy": "xpath",
+          "value": "//android.widget.Button[contains(@text, '登录')]",
+          "description": "登录按钮"
+        }
+      ]
+    },
+    {
+      "id": "home",
+      "name": "首页",
+      "nameEn": "Home",
+      "identifier": {
+        "strategy": "xpath",
+        "value": "//android.widget.TextView[contains(@text, '首页') or contains(@text, 'Home')]",
+        "description": "首页标识元素（待补充）"
+      },
+      "navigation": [],
+      "screenshot": true,
+      "textInspection": true,
+      "languageCheck": true,
+      "level": "core",
+      "criticalElements": [
+        {
+          "strategy": "xpath",
+          "value": "//android.widget.TextView[contains(@text, '余额')]",
+          "description": "余额显示区域"
+        }
+      ]
+    },
+    {
+      "id": "market",
+      "name": "市场/行情页面",
+      "nameEn": "Market",
+      "identifier": {
+        "strategy": "xpath",
+        "value": "//android.widget.TextView[contains(@text, '行情') or contains(@text, 'Market')]",
+        "description": "行情页面标识（待补充）"
+      },
+      "navigation": [
+        {
+          "order": 1,
+          "action": "tap",
+          "target": {
+            "strategy": "xpath",
+            "value": "//android.widget.TextView[contains(@text, '行情')]",
+            "description": "行情菜单按钮"
+          },
+          "waitAfter": 1000,
+          "description": "点击行情菜单"
+        }
+      ],
+      "screenshot": true,
+      "textInspection": true,
+      "languageCheck": true,
+      "level": "core"
+    },
+    {
+      "id": "position",
+      "name": "持仓页面",
+      "nameEn": "Position",
+      "identifier": {
+        "strategy": "xpath",
+        "value": "//android.widget.TextView[contains(@text, '持仓') or contains(@text, 'Position')]",
+        "description": "持仓页面标识（待补充）"
+      },
+      "navigation": [
+        {
+          "order": 1,
+          "action": "tap",
+          "target": {
+            "strategy": "xpath",
+            "value": "//android.widget.TextView[contains(@text, '持仓')]",
+            "description": "持仓菜单按钮"
+          },
+          "waitAfter": 1000,
+          "description": "点击持仓菜单"
+        }
+      ],
+      "screenshot": true,
+      "textInspection": true,
+      "languageCheck": true,
+      "level": "core"
+    },
+    {
+      "id": "history",
+      "name": "历史记录页面",
+      "nameEn": "History",
+      "identifier": {
+        "strategy": "xpath",
+        "value": "//android.widget.TextView[contains(@text, '历史') or contains(@text, 'History')]",
+        "description": "历史页面标识（待补充）"
+      },
+      "navigation": [
+        {
+          "order": 1,
+          "action": "tap",
+          "target": {
+            "strategy": "xpath",
+            "value": "//android.widget.TextView[contains(@text, '历史')]",
+            "description": "历史菜单按钮"
+          },
+          "waitAfter": 1000,
+          "description": "点击历史菜单"
+        }
+      ],
+      "screenshot": true,
+      "textInspection": true,
+      "languageCheck": true,
+      "level": "core"
+    },
+    {
+      "id": "account",
+      "name": "账户页面",
+      "nameEn": "Account",
+      "identifier": {
+        "strategy": "xpath",
+        "value": "//android.widget.TextView[contains(@text, '账户') or contains(@text, 'Account')]",
+        "description": "账户页面标识（待补充）"
+      },
+      "navigation": [
+        {
+          "order": 1,
+          "action": "tap",
+          "target": {
+            "strategy": "xpath",
+            "value": "//android.widget.ImageView[contains(@content-desc, '设置') or contains(@content-desc, 'Settings')]",
+            "description": "设置按钮"
+          },
+          "waitAfter": 500,
+          "description": "点击设置按钮"
+        }
+      ],
+      "screenshot": true,
+      "textInspection": true,
+      "languageCheck": true,
+      "level": "secondary"
+    }
+  ],
+  "trading": {
+    "instruments": [
+      {
+        "id": "eur-usd",
+        "name": "EUR/USD",
+        "locator": {
+          "strategy": "xpath",
+          "value": "//android.widget.TextView[contains(@text, 'EUR/USD')]",
+          "description": "EUR/USD 品种选择"
+        },
+        "defaultQuantity": 1,
+        "minQuantity": 1,
+        "maxQuantity": 10
+      }
+    ],
+    "openPosition": {
+      "actionName": "开仓",
+      "navigation": [
+        {
+          "order": 1,
+          "action": "tap",
+          "target": {
+            "strategy": "xpath",
+            "value": "//android.widget.TextView[contains(@text, '行情')]",
+            "description": "进入行情页面"
+          },
+          "waitAfter": 1000,
+          "description": "点击行情菜单"
+        },
+        {
+          "order": 2,
+          "action": "tap",
+          "target": {
+            "strategy": "xpath",
+            "value": "//android.widget.TextView[contains(@text, 'EUR/USD')]",
+            "description": "选择 EUR/USD"
+          },
+          "waitAfter": 500,
+          "description": "选择交易品种"
+        }
+      ],
+      "selectInstrument": [],
+      "inputQuantity": [
+        {
+          "order": 1,
+          "action": "tap",
+          "target": {
+            "strategy": "xpath",
+            "value": "//android.widget.EditText[@hint='数量' or @hint='手数']",
+            "description": "数量输入框"
+          },
+          "waitAfter": 200,
+          "description": "点击数量输入框"
+        },
+        {
+          "order": 2,
+          "action": "input",
+          "target": {
+            "strategy": "xpath",
+            "value": "//android.widget.EditText[@hint='数量' or @hint='手数']",
+            "description": "数量输入框"
+          },
+          "value": "1",
+          "waitAfter": 500,
+          "description": "输入数量 1"
+        }
+      ],
+      "direction": {
+        "buyLocator": {
+          "strategy": "xpath",
+          "value": "//android.widget.Button[contains(@text, '买入') or contains(@text, 'Buy')]",
+          "description": "买入按钮（待补充）"
+        },
+        "sellLocator": {
+          "strategy": "xpath",
+          "value": "//android.widget.Button[contains(@text, '卖出') or contains(@text, 'Sell')]",
+          "description": "卖出按钮（待补充）"
+        },
+        "defaultDirection": "buy"
+      },
+      "confirmButton": {
+        "strategy": "xpath",
+        "value": "//android.widget.Button[contains(@text, '确认') or contains(@text, 'Confirm')]",
+        "description": "开仓确认按钮（待补充实际定位器）"
+      },
+      "successIndicator": {
+        "strategy": "xpath",
+        "value": "//android.widget.TextView[contains(@text, '成功') or contains(@text, 'Success')]",
+        "description": "开仓成功提示（待补充）"
+      },
+      "failureIndicator": {
+        "strategy": "xpath",
+        "value": "//android.widget.TextView[contains(@text, '失败') or contains(@text, 'Error')]",
+        "description": "开仓失败提示（可选）"
+      },
+      "timeout": 30000,
+      "waitForExecution": 5000
+    },
+    "viewPosition": {
+      "navigation": [
+        {
+          "order": 1,
+          "action": "tap",
+          "target": {
+            "strategy": "xpath",
+            "value": "//android.widget.TextView[contains(@text, '持仓')]",
+            "description": "持仓菜单按钮"
+          },
+          "waitAfter": 1000,
+          "description": "点击持仓菜单"
+        }
+      ],
+      "positionListLocator": {
+        "strategy": "xpath",
+        "value": "//android.widget.ListView",
+        "description": "持仓列表（待补充实际定位器）"
+      },
+      "positionItemLocator": {
+        "strategy": "xpath",
+        "value": "//android.widget.ListView/android.widget.LinearLayout[1]",
+        "description": "第一条持仓项（待补充）"
+      },
+      "instrumentFieldLocator": {
+        "strategy": "xpath",
+        "value": "//android.widget.TextView[contains(@text, 'EUR/USD')]",
+        "description": "品种字段"
+      },
+      "quantityFieldLocator": {
+        "strategy": "xpath",
+        "value": "//android.widget.TextView[@index='2']",
+        "description": "数量字段（待补充）"
+      },
+      "priceFieldLocator": {
+        "strategy": "xpath",
+        "value": "//android.widget.TextView[@index='3']",
+        "description": "价格字段（待补充）"
+      }
+    },
+    "closePosition": {
+      "actionName": "平仓",
+      "navigation": [
+        {
+          "order": 1,
+          "action": "tap",
+          "target": {
+            "strategy": "xpath",
+            "value": "//android.widget.TextView[contains(@text, '持仓')]",
+            "description": "持仓菜单按钮"
+          },
+          "waitAfter": 1000,
+          "description": "点击持仓菜单"
+        }
+      ],
+      "confirmButton": {
+        "strategy": "xpath",
+        "value": "//android.widget.Button[contains(@text, '平仓') or contains(@text, 'Close')]",
+        "description": "平仓按钮（待补充实际定位器）"
+      },
+      "successIndicator": {
+        "strategy": "xpath",
+        "value": "//android.widget.TextView[contains(@text, '成功') or contains(@text, 'Success')]",
+        "description": "平仓成功提示（待补充）"
+      },
+      "timeout": 30000,
+      "waitForExecution": 5000
+    },
+    "history": {
+      "navigation": [
+        {
+          "order": 1,
+          "action": "tap",
+          "target": {
+            "strategy": "xpath",
+            "value": "//android.widget.TextView[contains(@text, '历史')]",
+            "description": "历史菜单按钮"
+          },
+          "waitAfter": 1000,
+          "description": "点击历史菜单"
+        }
+      ],
+      "historyListLocator": {
+        "strategy": "xpath",
+        "value": "//android.widget.ListView",
+        "description": "历史记录列表（待补充实际定位器）"
+      },
+      "historyItemLocator": {
+        "strategy": "xpath",
+        "value": "//android.widget.ListView/android.widget.LinearLayout[1]",
+        "description": "第一条历史记录项（待补充）"
+      },
+      "timeRangeSelector": {
+        "strategy": "xpath",
+        "value": "//android.widget.Spinner[@content-desc='时间范围']",
+        "description": "时间范围选择器（可选）"
+      }
+    },
+    "balance": {
+      "balanceLocator": {
+        "strategy": "xpath",
+        "value": "//android.widget.TextView[contains(@text, '余额') or contains(@text, 'Balance')]",
+        "description": "余额字段（待补充实际定位器）"
+      },
+      "equityLocator": {
+        "strategy": "xpath",
+        "value": "//android.widget.TextView[contains(@text, '净值') or contains(@text, 'Equity')]",
+        "description": "净值字段（可选）"
+      },
+      "availableLocator": {
+        "strategy": "xpath",
+        "value": "//android.widget.TextView[contains(@text, '可用') or contains(@text, 'Available')]",
+        "description": "可用余额字段（可选）"
+      },
+      "checkRules": [
+        {
+          "type": "positive",
+          "description": "余额应为正值",
+          "required": true
+        },
+        {
+          "type": "change-exists",
+          "description": "交易后余额应有变化",
+          "required": false
+        }
+      ]
+    }
+  },
+  "languages": {
+    "supportedLanguages": [
+      {
+        "code": "zh-CN",
+        "name": "中文",
+        "fullFlow": true
+      },
+      {
+        "code": "en-US",
+        "name": "英文",
+        "fullFlow": true
+      }
+    ],
+    "switchMethod": "app-internal",
+    "switchSteps": [
+      {
+        "targetLanguage": "en-US",
+        "navigation": [
+          {
+            "order": 1,
+            "action": "tap",
+            "target": {
+              "strategy": "xpath",
+              "value": "//android.widget.ImageView[contains(@content-desc, '设置')]",
+              "description": "设置按钮"
+            },
+            "waitAfter": 500,
+            "description": "点击设置按钮"
+          },
+          {
+            "order": 2,
+            "action": "tap",
+            "target": {
+              "strategy": "xpath",
+              "value": "//android.widget.TextView[contains(@text, '语言') or contains(@text, 'Language')]",
+              "description": "语言设置项"
+            },
+            "waitAfter": 500,
+            "description": "点击语言设置"
+          }
+        ],
+        "languageSelector": {
+          "strategy": "xpath",
+          "value": "//android.widget.TextView[contains(@text, 'English')]",
+          "description": "选择英文"
+        },
+        "waitAfter": 2000
+      },
+      {
+        "targetLanguage": "zh-CN",
+        "navigation": [
+          {
+            "order": 1,
+            "action": "tap",
+            "target": {
+              "strategy": "xpath",
+              "value": "//android.widget.ImageView[contains(@content-desc, '设置')]",
+              "description": "设置按钮"
+            },
+            "waitAfter": 500,
+            "description": "点击设置按钮"
+          },
+          {
+            "order": 2,
+            "action": "tap",
+            "target": {
+              "strategy": "xpath",
+              "value": "//android.widget.TextView[contains(@text, '语言') or contains(@text, 'Language')]",
+              "description": "语言设置项"
+            },
+            "waitAfter": 500,
+            "description": "点击语言设置"
+          }
+        ],
+        "languageSelector": {
+          "strategy": "xpath",
+          "value": "//android.widget.TextView[contains(@text, '中文') or contains(@text, 'Chinese')]",
+          "description": "选择中文"
+        },
+        "waitAfter": 2000
+      }
+    ],
+    "restoreDefault": true,
+    "defaultLanguage": "zh-CN"
+  },
+  "inspection": {
+    "autoScreenshot": true,
+    "savePageSource": true,
+    "extractText": true,
+    "basicRules": [
+      {
+        "id": "page-blank",
+        "name": "页面空白检查",
+        "description": "检查页面是否为空白或无内容",
+        "severity": "P0",
+        "enabled": true
+      },
+      {
+        "id": "critical-element-missing",
+        "name": "关键元素缺失检查",
+        "description": "检查页面关键元素是否存在",
+        "severity": "P0",
+        "enabled": true
+      },
+      {
+        "id": "untranslated-key",
+        "name": "未翻译 Key 检查",
+        "description": "检查是否存在未翻译的国际化 Key",
+        "severity": "P1",
+        "enabled": true
+      },
+      {
+        "id": "placeholder-unreplaced",
+        "name": "占位符未替换检查",
+        "description": "检查是否存在 {0}、%s 等未替换的占位符",
+        "severity": "P1",
+        "enabled": true
+      },
+      {
+        "id": "mixed-language",
+        "name": "中英文混杂检查",
+        "description": "检查同一页面是否存在中英文混杂",
+        "severity": "P2",
+        "enabled": true
+      },
+      {
+        "id": "garbled-text",
+        "name": "乱码检查",
+        "description": "检查是否存在乱码或编码异常",
+        "severity": "P1",
+        "enabled": true
+      },
+      {
+        "id": "text-truncated",
+        "name": "文本截断检查",
+        "description": "检查文本是否被截断显示不完整",
+        "severity": "P2",
+        "enabled": true
+      }
+    ]
+  },
+  "report": {
+    "formats": ["html", "json"],
+    "outputDir": "./data/reports",
+    "language": "zh-CN",
+    "includeAiAnalysis": true
+  }
+}

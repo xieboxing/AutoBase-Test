@@ -5,7 +5,21 @@ import { logger } from '@/core/logger.js';
 import { ConsoleReporter } from '@/reporters/console-reporter.js';
 import { ReportGenerator } from '@/reporters/report-generator.js';
 import { deviceManager } from '@/utils/device.js';
-import { remote, type Browser } from 'webdriverio';
+import { remote, type Browser, type RemoteOptions } from 'webdriverio';
+import { createTestStepResult } from '@/types/test-result.types.js';
+
+/**
+ * Appium 特有的 capabilities
+ */
+interface AppiumCapabilities extends Record<string, unknown> {
+  platformName: string;
+  'appium:deviceName': string;
+  'appium:appPackage': string;
+  'appium:appActivity': string;
+  'appium:automationName': string;
+  'appium:noReset': boolean;
+  'appium:newCommandTimeout': number;
+}
 
 /**
  * APP 测试命令选项
@@ -229,7 +243,7 @@ async function executeAppTest(apkPath: string | undefined, options: AppCommandOp
           durationMs: installDuration,
           platform: 'android-app',
           environment: { device: deviceId },
-          steps: [{ order: 1, action: 'install', status: 'passed', durationMs: installDuration, errorMessage: undefined, timestamp: new Date().toISOString() } as any],
+          steps: [createTestStepResult({ order: 1, action: 'install', status: 'passed', durationMs: installDuration })],
           retryCount: 0,
           selfHealed: false,
           artifacts: { screenshots: [], logs: [] },
@@ -246,7 +260,7 @@ async function executeAppTest(apkPath: string | undefined, options: AppCommandOp
           durationMs: installDuration,
           platform: 'android-app',
           environment: { device: deviceId },
-          steps: [{ order: 1, action: 'install', status: 'failed', durationMs: installDuration, errorMessage: installResult.message, timestamp: new Date().toISOString() } as any],
+          steps: [createTestStepResult({ order: 1, action: 'install', status: 'failed', durationMs: installDuration, errorMessage: installResult.message })],
           retryCount: 0,
           selfHealed: false,
           artifacts: { screenshots: [], logs: [] },
@@ -289,7 +303,7 @@ async function executeAppTest(apkPath: string | undefined, options: AppCommandOp
           durationMs: launchDuration,
           platform: 'android-app',
           environment: { device: deviceId },
-          steps: [{ order: 1, action: 'launch', status: 'passed', durationMs: launchDuration, errorMessage: undefined, timestamp: new Date().toISOString() } as any],
+          steps: [createTestStepResult({ order: 1, action: 'launch', status: 'passed', durationMs: launchDuration })],
           retryCount: 0,
           selfHealed: false,
           artifacts: { screenshots: screenshotPath ? [screenshotPath] : [], logs: [] },
@@ -306,7 +320,7 @@ async function executeAppTest(apkPath: string | undefined, options: AppCommandOp
           durationMs: launchDuration,
           platform: 'android-app',
           environment: { device: deviceId },
-          steps: [{ order: 1, action: 'launch', status: 'failed', durationMs: launchDuration, errorMessage: launchResult.message, timestamp: new Date().toISOString() } as any],
+          steps: [createTestStepResult({ order: 1, action: 'launch', status: 'failed', durationMs: launchDuration, errorMessage: launchResult.message })],
           retryCount: 0,
           selfHealed: false,
           artifacts: { screenshots: [], logs: [] },
@@ -322,19 +336,21 @@ async function executeAppTest(apkPath: string | undefined, options: AppCommandOp
 
         try {
           // 初始化 Appium 驱动
+          const appiumCapabilities: AppiumCapabilities = {
+            platformName: 'Android',
+            'appium:deviceName': deviceId,
+            'appium:appPackage': packageName,
+            'appium:appActivity': mainActivity || '.MainActivity',
+            'appium:automationName': 'UiAutomator2',
+            'appium:noReset': true,
+            'appium:newCommandTimeout': 300,
+          };
+
           driver = await remote({
             hostname: process.env.APPIUM_HOST || '127.0.0.1',
             port: parseInt(process.env.APPIUM_PORT || '4723', 10),
             path: '/wd/hub',
-            capabilities: {
-              platformName: 'Android',
-              'appium:deviceName': deviceId,
-              'appium:appPackage': packageName,
-              'appium:appActivity': mainActivity || '.MainActivity',
-              'appium:automationName': 'UiAutomator2',
-              'appium:noReset': true,
-              'appium:newCommandTimeout': 300,
-            } as any,
+            capabilities: appiumCapabilities as RemoteOptions['capabilities'],
           });
 
           await driver.connect();
@@ -381,8 +397,8 @@ async function executeAppTest(apkPath: string | undefined, options: AppCommandOp
             platform: 'android-app',
             environment: { device: deviceId },
             steps: [
-              { order: 1, action: 'connect-appium', status: 'passed', durationMs: 1000, errorMessage: undefined, timestamp: new Date().toISOString() } as any,
-              { order: 2, action: 'find-elements', status: uiStatus, durationMs: uiDuration - 1000, errorMessage: elementCount === 0 ? '未找到 UI 元素' : undefined, timestamp: new Date().toISOString() } as any,
+              createTestStepResult({ order: 1, action: 'connect-appium', status: 'passed', durationMs: 1000 }),
+              createTestStepResult({ order: 2, action: 'find-elements', status: uiStatus, durationMs: uiDuration - 1000, errorMessage: elementCount === 0 ? '未找到 UI 元素' : undefined }),
             ],
             retryCount: 0,
             selfHealed: false,

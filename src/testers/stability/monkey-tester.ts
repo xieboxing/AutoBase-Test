@@ -311,9 +311,9 @@ export class MonkeyTester {
 
       await this.executeRandomAction(i);
 
-      // 操作间隔
+      // 智能等待：等待页面状态稳定后再执行下一个操作（而非固定等待）
       if (this.config.actionDelay > 0) {
-        await this.page!.waitForTimeout(this.config.actionDelay);
+        await this.waitForPageStable(this.config.actionDelay);
       }
     }
 
@@ -739,6 +739,50 @@ export class MonkeyTester {
       this.browser = null;
     }
     logger.info('🔚 Monkey 测试器已关闭');
+  }
+
+  /**
+   * 智能等待页面状态稳定
+   * 通过检查 DOM 变化、网络请求和动画状态来判断页面是否稳定
+   */
+  private async waitForPageStable(maxWaitMs: number): Promise<void> {
+    const pollInterval = Math.min(20, maxWaitMs / 10);
+    const startTime = Date.now();
+
+    // 获取初始 DOM 节点数
+    let lastNodeCount = await this.page!.evaluate(() => document.querySelectorAll('*').length);
+    let stableCount = 0;
+
+    while (Date.now() - startTime < maxWaitMs) {
+      await this.page!.waitForTimeout(pollInterval);
+
+      // 检查 DOM 是否稳定
+      const currentNodeCount = await this.page!.evaluate(() => document.querySelectorAll('*').length);
+
+      if (currentNodeCount === lastNodeCount) {
+        // 检查是否有 loading 状态
+        const hasLoading = await this.page!.evaluate(() => {
+          const loadingSelectors = ['[data-loading="true"]', '.loading', '.spinner', '[aria-busy="true"]'];
+          for (const selector of loadingSelectors) {
+            if (document.querySelector(selector)) {
+              return true;
+            }
+          }
+          return false;
+        });
+
+        if (!hasLoading) {
+          stableCount++;
+          // 连续两次稳定，认为页面稳定
+          if (stableCount >= 2) {
+            return;
+          }
+        }
+      } else {
+        stableCount = 0;
+        lastNodeCount = currentNodeCount;
+      }
+    }
   }
 }
 

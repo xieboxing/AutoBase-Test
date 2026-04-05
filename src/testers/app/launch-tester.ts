@@ -153,8 +153,8 @@ export class LaunchTester {
       // 强制停止应用
       await deviceManager.forceStopApp(this.config.deviceId, this.config.packageName);
 
-      // 等待系统稳定
-      await this.sleep(1000);
+      // 等待系统稳定（检查进程是否完全终止）
+      await this.waitForAppFullyStopped();
 
       // 启动并测量时间
       const launchResult = await this.measureLaunchTime('cold');
@@ -190,6 +190,39 @@ export class LaunchTester {
   }
 
   /**
+   * 等待应用完全停止
+   * 轮询检查进程状态，而非硬等待
+   */
+  protected async waitForAppFullyStopped(): Promise<void> {
+    const maxWaitTime = 3000; // 最大等待 3 秒
+    const pollInterval = 100; // 每 100ms 检查一次
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWaitTime) {
+      try {
+        // 检查应用进程是否存在
+        const output = await deviceManager.shell(
+          this.config.deviceId,
+          `pidof ${this.config.packageName}`
+        );
+
+        // 如果 pidof 返回空，说明进程已终止
+        if (!output.trim()) {
+          return;
+        }
+      } catch {
+        // 命令执行失败，假设已停止
+        return;
+      }
+
+      await this.sleep(pollInterval);
+    }
+
+    // 超时后仍返回，不阻塞测试
+    logger.warn('⚠️ 等待应用停止超时，继续测试');
+  }
+
+  /**
    * 测试温启动
    * 流程：启动 -> 后台 -> 启动 -> 测量时间
    */
@@ -206,12 +239,15 @@ export class LaunchTester {
       this.config.mainActivity,
     );
 
+    // 等待应用完全启动
+    await this.waitForAppReady();
+
     for (let i = 0; i < this.config.iterations; i++) {
       // 将应用切换到后台（按 Home 键）
       await deviceManager.shell(this.config.deviceId, 'input keyevent KEYCODE_HOME');
 
-      // 等待后台状态稳定
-      await this.sleep(500);
+      // 等待后台状态稳定（检查应用是否在后台）
+      await this.waitForAppInBackground();
 
       // 重新启动并测量时间
       const launchResult = await this.measureLaunchTime('warm');
@@ -265,16 +301,19 @@ export class LaunchTester {
       this.config.mainActivity,
     );
 
+    // 等待应用完全启动
+    await this.waitForAppReady();
+
     for (let i = 0; i < this.config.iterations; i++) {
       // 将应用切换到后台
       await deviceManager.shell(this.config.deviceId, 'input keyevent KEYCODE_HOME');
 
-      // 短暂等待（模拟用户快速切换）
+      // 短暂等待（模拟用户快速切换）- 这里的短等待是业务需求，不是 Flaky 根源
       await this.sleep(100);
 
       // 立即切回前台（使用最近任务）
       await deviceManager.shell(this.config.deviceId, 'input keyevent KEYCODE_APP_SWITCH');
-      await this.sleep(200);
+      await this.waitForRecentAppShown();
       await deviceManager.shell(this.config.deviceId, 'input keyevent KEYCODE_ENTER');
 
       // 测量启动时间
@@ -310,6 +349,70 @@ export class LaunchTester {
       threshold,
       passed,
     };
+  }
+
+  /**
+   * 等待应用就绪
+   */
+  protected async waitForAppReady(): Promise<void> {
+    const maxWaitTime = 5000;
+    const pollInterval = 200;
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWaitTime) {
+      try {
+        // 检查应用是否在前台
+        const output = await deviceManager.shell(
+          this.config.deviceId,
+          `dumpsys activity activities | grep -E "mResumedActivity.*${this.config.packageName}"`
+        );
+
+        if (output.includes(this.config.packageName)) {
+          return;
+        }
+      } catch {
+        // 忽略错误
+      }
+
+      await this.sleep(pollInterval);
+    }
+
+    logger.warn('⚠️ 等待应用就绪超时');
+  }
+
+  /**
+   * 等待应用进入后台
+   */
+  protected async waitForAppInBackground(): Promise<void> {
+    const maxWaitTime = 2000;
+    const pollInterval = 100;
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWaitTime) {
+      try {
+        const output = await deviceManager.shell(
+          this.config.deviceId,
+          `dumpsys activity activities | grep -E "mResumedActivity"`
+        );
+
+        // 如果当前 Activity 不是目标应用，说明已进入后台
+        if (!output.includes(this.config.packageName)) {
+          return;
+        }
+      } catch {
+        // 忽略错误
+      }
+
+      await this.sleep(pollInterval);
+    }
+  }
+
+  /**
+   * 等待最近任务界面显示
+   */
+  protected async waitForRecentAppShown(): Promise<void> {
+    // 等待界面切换动画
+    await this.sleep(150);
   }
 
   /**

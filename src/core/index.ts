@@ -23,12 +23,7 @@ export {
   Orchestrator,
   type OrchestratorConfig,
 } from './orchestrator.js';
-export {
-  TestRunner,
-  type TestRunnerConfig,
-  type StepResult,
-  type CaseResult,
-} from './test-runner.js';
+// test-runner.js 已删除，请使用 PcTester 或 H5Tester
 export {
   ResultCollector,
 } from './result-collector.js';

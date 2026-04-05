@@ -444,7 +444,8 @@ export class XssTester {
 
         // 触发 change 和 blur 事件
         await locator.blur();
-        await this.page.waitForTimeout(100);
+        // 智能等待：等待 DOM 更新和可能的脚本执行（而非固定等待）
+        await this.waitForXssExecution(100);
 
         // 检查是否触发 alert
         if (this.alertTriggered) {
@@ -563,7 +564,8 @@ export class XssTester {
       if (hasSubmitBtn) {
         // 点击提交
         await submitBtn.first().click();
-        await this.page.waitForTimeout(500);
+        // 智能等待：等待表单提交完成和可能的 XSS 执行（而非固定等待）
+        await this.waitForXssExecution(500);
 
         // 检查是否触发 alert
         if (this.alertTriggered) {
@@ -637,6 +639,53 @@ export class XssTester {
       this.browser = null;
     }
     logger.info('🔚 XSS 测试器已关闭');
+  }
+
+  /**
+   * 智能等待 XSS 执行检测
+   * 通过轮询检查是否有脚本执行迹象，而非固定等待
+   */
+  private async waitForXssExecution(maxWaitMs: number): Promise<void> {
+    const pollInterval = Math.min(20, maxWaitMs / 10);
+    const startTime = Date.now();
+    let lastCheckTime = 0;
+
+    while (Date.now() - startTime < maxWaitMs) {
+      // 如果已经检测到 alert，立即返回
+      if (this.alertTriggered) {
+        return;
+      }
+
+      // 每 50ms 检查一次 DOM 变化
+      if (Date.now() - lastCheckTime > 50) {
+        try {
+          const hasScriptExecution = await this.page!.evaluate(() => {
+            // 检查是否有新创建的 script 标签
+            const scripts = document.querySelectorAll('script');
+            // 检查是否有注入的事件处理器
+            const allElements = document.querySelectorAll('*');
+            for (const el of Array.from(allElements)) {
+              const attrs = Array.from(el.attributes);
+              for (const attr of attrs) {
+                if (attr.name.startsWith('on') && (attr.value as string).includes('alert')) {
+                  return true;
+                }
+              }
+            }
+            return false;
+          });
+
+          if (hasScriptExecution) {
+            return;
+          }
+          lastCheckTime = Date.now();
+        } catch {
+          // 忽略评估错误
+        }
+      }
+
+      await this.page!.waitForTimeout(pollInterval);
+    }
   }
 }
 

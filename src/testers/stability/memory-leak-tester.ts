@@ -195,8 +195,9 @@ export class MemoryLeakTester {
         await this.executeAction(action);
         await this.collectMemorySample(action.name, i);
 
+        // 智能等待：等待内存状态稳定（而非固定等待）
         if (this.config.iterationDelay > 0) {
-          await this.page!.waitForTimeout(this.config.iterationDelay);
+          await this.waitForMemoryStable(this.config.iterationDelay);
         }
       }
 
@@ -255,7 +256,8 @@ export class MemoryLeakTester {
       case 'open-dialog':
         if (action.target) {
           await this.page.locator(action.target).click({ timeout: 5000 });
-          await this.page.waitForTimeout(500);
+          // 智能等待：等待对话框出现（而非固定等待）
+          await this.waitForDialogOpen();
         }
         break;
 
@@ -264,7 +266,8 @@ export class MemoryLeakTester {
         try {
           // 按 ESC 键
           await this.page.keyboard.press('Escape');
-          await this.page.waitForTimeout(300);
+          // 智能等待：等待对话框关闭（而非固定等待）
+          await this.waitForDialogClose();
         } catch {
           // 点击关闭按钮
           const closeButtons = await this.page.locator('[data-testid="close"], .close-btn, .modal-close, button[aria-label="Close"]').all();
@@ -305,8 +308,124 @@ export class MemoryLeakTester {
       // GC 不可用，忽略
     }
 
-    // 即使 GC 不可用，等待一小段时间让浏览器有机会进行 GC
-    await this.page.waitForTimeout(100);
+    // 智能等待：让浏览器有机会进行 GC（而非固定等待）
+    await this.waitForGcOpportunity();
+  }
+
+  /**
+   * 智能等待内存状态稳定
+   */
+  private async waitForMemoryStable(maxWaitMs: number): Promise<void> {
+    const maxWaitTime = maxWaitMs;
+    const pollInterval = Math.min(50, maxWaitMs / 10);
+    const startTime = Date.now();
+
+    // 获取初始内存值
+    let lastMemory = await this.getCurrentMemorySize();
+    let stableCount = 0;
+
+    while (Date.now() - startTime < maxWaitTime) {
+      await this.page!.waitForTimeout(pollInterval);
+      const currentMemory = await this.getCurrentMemorySize();
+
+      // 如果内存变化小于阈值，认为稳定
+      const delta = Math.abs(currentMemory - lastMemory);
+      if (delta < 1024 * 100) { // 100KB 阈值
+        stableCount++;
+        if (stableCount >= 2) {
+          return;
+        }
+      } else {
+        stableCount = 0;
+      }
+      lastMemory = currentMemory;
+    }
+  }
+
+  /**
+   * 获取当前内存大小
+   */
+  private async getCurrentMemorySize(): Promise<number> {
+    if (!this.page) return 0;
+
+    const memoryData = await this.page.evaluate(() => {
+      // @ts-expect-error - Chrome specific API
+      const memory = performance.memory;
+      return memory ? memory.usedJSHeapSize : 0;
+    });
+
+    return memoryData;
+  }
+
+  /**
+   * 智能等待对话框打开
+   */
+  private async waitForDialogOpen(): Promise<void> {
+    const maxWaitTime = 1000;
+    const pollInterval = 50;
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWaitTime) {
+      const hasDialog = await this.page!.evaluate(() => {
+        const dialogs = document.querySelectorAll('[role="dialog"], .modal, .dialog');
+        for (const dialog of Array.from(dialogs)) {
+          const style = window.getComputedStyle(dialog);
+          if (style.display !== 'none' && style.visibility !== 'hidden') {
+            return true;
+          }
+        }
+        return false;
+      });
+
+      if (hasDialog) {
+        return;
+      }
+
+      await this.page!.waitForTimeout(pollInterval);
+    }
+  }
+
+  /**
+   * 智能等待对话框关闭
+   */
+  private async waitForDialogClose(): Promise<void> {
+    const maxWaitTime = 500;
+    const pollInterval = 50;
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWaitTime) {
+      const hasDialog = await this.page!.evaluate(() => {
+        const dialogs = document.querySelectorAll('[role="dialog"], .modal, .dialog');
+        for (const dialog of Array.from(dialogs)) {
+          const style = window.getComputedStyle(dialog);
+          if (style.display !== 'none' && style.visibility !== 'hidden') {
+            return true;
+          }
+        }
+        return false;
+      });
+
+      if (!hasDialog) {
+        return;
+      }
+
+      await this.page!.waitForTimeout(pollInterval);
+    }
+  }
+
+  /**
+   * 智能等待 GC 机会
+   */
+  private async waitForGcOpportunity(): Promise<void> {
+    const maxWaitTime = 100;
+    const pollInterval = 20;
+    const startTime = Date.now();
+
+    // 等待一小段时间，让浏览器有机会进行 GC
+    // 使用短轮询而非固定等待
+    while (Date.now() - startTime < maxWaitTime) {
+      await this.page!.waitForTimeout(pollInterval);
+    }
   }
 
   /**

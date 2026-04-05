@@ -267,7 +267,7 @@ export class FormTester {
   }
 
   /**
-   * 测试空提交
+   * 测试空提交（智能等待）
    */
   private async testEmptySubmit(form: FormInfo): Promise<{ passed: boolean; errorMessage?: string }> {
     if (!this.page) return { passed: false, errorMessage: 'Page not initialized' };
@@ -294,8 +294,8 @@ export class FormTester {
       // 等待页面稳定（等待验证信息出现或页面跳转）
       await this.page.waitForLoadState('domcontentloaded').catch(() => {});
 
-      // 智能等待验证错误出现（替代固定等待500ms）
-      await this.page.waitForTimeout(300); // 给浏览器一点时间处理HTML5验证
+      // 智能等待验证错误出现（替代固定等待）
+      await this.waitForValidationError();
 
       // 检查是否有验证错误信息
       const hasError = await this.page.evaluate(() => {
@@ -315,6 +315,35 @@ export class FormTester {
         errorMessage: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  /**
+   * 智能等待验证错误出现
+   */
+  private async waitForValidationError(): Promise<void> {
+    const maxWaitTime = 1000; // 最大等待 1 秒
+    const pollInterval = 50; // 每 50ms 检查一次
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWaitTime) {
+      const hasError = await this.page!.evaluate(() => {
+        // 检查 HTML5 验证
+        const invalidInputs = document.querySelectorAll('input:invalid, select:invalid, textarea:invalid');
+        if (invalidInputs.length > 0) return true;
+
+        // 检查常见错误信息元素
+        const errorElements = document.querySelectorAll('.error, .error-message, [role="alert"], .invalid-feedback');
+        return errorElements.length > 0;
+      });
+
+      if (hasError) {
+        return;
+      }
+
+      await this.page!.waitForTimeout(pollInterval);
+    }
+
+    // 超时也继续，不影响测试
   }
 
   /**
@@ -364,7 +393,8 @@ export class FormTester {
 
       // 触发验证
       await this.page.locator(field.selector).blur();
-      await this.page.waitForTimeout(200);
+      // 智能等待：等待验证完成（而非固定等待）
+      await this.waitForValidationComplete(200);
 
       // 检查验证状态
       const isValid = await this.page.locator(field.selector).evaluate((el) => {
@@ -475,6 +505,34 @@ export class FormTester {
       if (value) {
         await this.page.locator(field.selector).fill(value);
       }
+    }
+  }
+
+  /**
+   * 智能等待验证完成
+   * 通过轮询检查验证状态是否已更新
+   */
+  private async waitForValidationComplete(maxWaitMs: number): Promise<void> {
+    const pollInterval = 20;
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWaitMs) {
+      // 检查是否有验证消息出现
+      const hasValidationMessage = await this.page!.evaluate(() => {
+        // 检查 HTML5 验证消息
+        const invalidInputs = document.querySelectorAll('input:invalid, select:invalid, textarea:invalid');
+        if (invalidInputs.length > 0) return true;
+
+        // 检查自定义验证消息
+        const errorElements = document.querySelectorAll('.error, .error-message, [role="alert"], .invalid-feedback');
+        return errorElements.length > 0;
+      });
+
+      if (hasValidationMessage) {
+        return;
+      }
+
+      await this.page!.waitForTimeout(pollInterval);
     }
   }
 

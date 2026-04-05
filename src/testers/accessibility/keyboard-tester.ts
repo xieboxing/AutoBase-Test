@@ -207,7 +207,7 @@ export class KeyboardTester {
   }
 
   /**
-   * 测试 Tab 键导航
+   * 测试 Tab 键导航（智能等待）
    */
   private async testTabNavigation(): Promise<{ elements: FocusedElement[]; order: string[] }> {
     const elements: FocusedElement[] = [];
@@ -219,7 +219,9 @@ export class KeyboardTester {
 
     for (let i = 0; i < this.config.maxTabCount; i++) {
       await this.page!.keyboard.press('Tab');
-      await this.page!.waitForTimeout(50);
+
+      // 智能等待焦点变化（而非固定等待）
+      await this.waitForFocusChange();
 
       const focusedElement = await this.page!.evaluate(() => {
         const el = document.activeElement;
@@ -272,6 +274,35 @@ export class KeyboardTester {
   }
 
   /**
+   * 智能等待焦点变化
+   */
+  private async waitForFocusChange(): Promise<void> {
+    const maxWaitTime = 200; // 最大等待 200ms
+    const pollInterval = 10; // 每 10ms 检查一次
+    const startTime = Date.now();
+
+    // 获取初始焦点元素
+    let lastActiveElement = await this.page!.evaluate(() => {
+      return document.activeElement?.tagName || '';
+    });
+
+    while (Date.now() - startTime < maxWaitTime) {
+      await this.page!.waitForTimeout(pollInterval);
+
+      const currentActiveElement = await this.page!.evaluate(() => {
+        return document.activeElement?.tagName || '';
+      });
+
+      // 如果焦点元素变化了，说明 Tab 生效了
+      if (currentActiveElement !== lastActiveElement) {
+        return;
+      }
+    }
+
+    // 超时也继续，不影响测试
+  }
+
+  /**
    * 检查跳过链接
    */
   private async checkSkipLinks(): Promise<boolean> {
@@ -303,7 +334,7 @@ export class KeyboardTester {
   }
 
   /**
-   * 测试 Escape 键
+   * 测试 Escape 键（智能等待）
    */
   private async testEscapeKey(): Promise<KeyboardIssue | null> {
     // 检查是否有打开的模态框或下拉菜单
@@ -315,7 +346,9 @@ export class KeyboardTester {
     if (hasModal) {
       // 尝试按 Escape 关闭
       await this.page!.keyboard.press('Escape');
-      await this.page!.waitForTimeout(100);
+
+      // 智能等待模态框关闭
+      await this.waitForModalClose();
 
       const modalStillOpen = await this.page!.evaluate(() => {
         const modals = document.querySelectorAll('[role="dialog"], [role="modal"], .modal, .dialog');
@@ -339,6 +372,34 @@ export class KeyboardTester {
     }
 
     return null;
+  }
+
+  /**
+   * 智能等待模态框关闭
+   */
+  private async waitForModalClose(): Promise<void> {
+    const maxWaitTime = 500; // 最大等待 500ms
+    const pollInterval = 50; // 每 50ms 检查一次
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWaitTime) {
+      const modalStillVisible = await this.page!.evaluate(() => {
+        const modals = document.querySelectorAll('[role="dialog"], [role="modal"], .modal, .dialog');
+        for (const modal of Array.from(modals)) {
+          const style = window.getComputedStyle(modal);
+          if (style.display !== 'none' && style.visibility !== 'hidden') {
+            return true;
+          }
+        }
+        return false;
+      });
+
+      if (!modalStillVisible) {
+        return;
+      }
+
+      await this.page!.waitForTimeout(pollInterval);
+    }
   }
 
   /**

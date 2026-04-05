@@ -337,8 +337,10 @@ export class WebCrawler extends EventEmitter {
    * 等待 SPA 页面稳定
    */
   private async waitForSpaStable(page: Page): Promise<void> {
-    // 等待一段时间确保 SPA 内容加载
-    await page.waitForTimeout(500);
+    // 智能等待：通过检查页面状态而非固定等待
+    const maxWaitTime = 1000;
+    const pollInterval = 100;
+    const startTime = Date.now();
 
     // 检查是否有 pending 的网络请求或 loading 状态
     try {
@@ -353,11 +355,31 @@ export class WebCrawler extends EventEmitter {
           const loadingElements = document.querySelectorAll('[data-loading="true"], .loading, .spinner, [aria-busy="true"]');
           return loadingElements.length === 0;
         },
-        { timeout: 5000 },
+        { timeout: maxWaitTime },
       );
     } catch {
       // 超时不影响继续执行，页面可能已经稳定
       logger.debug('SPA 页面稳定检查超时，继续执行');
+    }
+
+    // 额外检查 DOM 稳定性
+    let lastNodeCount = 0;
+    let stableCount = 0;
+
+    while (Date.now() - startTime < maxWaitTime) {
+      const currentNodeCount = await page.evaluate(() => document.querySelectorAll('*').length);
+
+      if (currentNodeCount === lastNodeCount) {
+        stableCount++;
+        if (stableCount >= 2) {
+          return;
+        }
+      } else {
+        stableCount = 0;
+        lastNodeCount = currentNodeCount;
+      }
+
+      await page.waitForTimeout(pollInterval);
     }
   }
 

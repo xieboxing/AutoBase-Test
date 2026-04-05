@@ -61,6 +61,20 @@ const DEFAULT_APP_CONFIG: AppCrawlerConfig = {
 };
 
 /**
+ * 系统弹窗配置
+ */
+const SYSTEM_POPUP_PATTERNS = [
+  { buttonSelector: '//*[@text="允许"]', description: '权限允许弹窗' },
+  { buttonSelector: '//*[@text="始终允许"]', description: '始终允许弹窗' },
+  { buttonSelector: '//*[@text="确定"]', description: '确定弹窗' },
+  { buttonSelector: '//*[@text="好的"]', description: '好的弹窗' },
+  { buttonSelector: '//*[@text="以后"]', description: '更新提醒弹窗' },
+  { buttonSelector: '//*[@text="暂不更新"]', description: '更新弹窗' },
+  { buttonSelector: '//*[@text="取消"]', description: '取消弹窗' },
+  { buttonSelector: '//*[@text="关闭"]', description: '关闭弹窗' },
+];
+
+/**
  * APP 爬虫类（基于 Appium/WebDriverIO）
  */
 export class AppCrawler extends EventEmitter {
@@ -432,12 +446,45 @@ export class AppCrawler extends EventEmitter {
   }
 
   /**
-   * 点击元素
+   * 处理系统弹窗
+   * 尝试关闭可能存在的系统弹窗（权限、更新提醒等）
+   * @returns 是否处理了弹窗
+   */
+  private async handleSystemPopups(): Promise<boolean> {
+    if (!this.driver) return false;
+
+    let handled = false;
+
+    for (const popup of SYSTEM_POPUP_PATTERNS) {
+      try {
+        const button = await this.driver.$(popup.buttonSelector);
+        const isDisplayed = await button.isDisplayed().catch(() => false);
+
+        if (isDisplayed) {
+          await button.click();
+          logger.info(`🛡️ 已处理系统弹窗: ${popup.description}`);
+          handled = true;
+          // 等待弹窗消失
+          await this.driver.pause(300);
+        }
+      } catch {
+        // 弹窗不存在或处理失败，继续检查下一个
+      }
+    }
+
+    return handled;
+  }
+
+  /**
+   * 点击元素（带可见性和可点击性检查）
    */
   private async clickElement(element: InteractiveElement): Promise<void> {
     if (!this.driver) return;
 
     try {
+      // 先尝试处理可能存在的系统弹窗
+      await this.handleSystemPopups();
+
       // 尝试多种定位策略
       const selectors = [element.selector, ...element.alternativeSelectors];
 
@@ -454,45 +501,97 @@ export class AppCrawler extends EventEmitter {
             locator = this.driver.$(selector);
           }
 
-          await locator.click();
-          return;
+          // 检查元素是否存在、可见、可点击
+          const isDisplayed = await locator.isDisplayed().catch(() => false);
+          const isEnabled = await locator.isEnabled().catch(() => false);
+
+          if (isDisplayed && isEnabled) {
+            await locator.click();
+            return;
+          }
         } catch {
           // 尝试下一个选择器
         }
       }
 
-      // 如果所有选择器都失败，使用坐标点击
+      // 如果所有选择器都失败，使用坐标点击（最后手段）
       if (element.position.x > 0 && element.position.y > 0) {
         const centerX = element.position.x + element.position.width / 2;
         const centerY = element.position.y + element.position.height / 2;
+
+        logger.warn(`⚠️ 使用坐标点击元素: (${centerX}, ${centerY})`);
         await this.driver.touchAction({
           action: 'tap',
           x: centerX,
           y: centerY,
         });
+      } else {
+        throw new Error(`元素不可见或不可点击: ${element.selector}`);
       }
     } catch (error) {
-      throw new Error(`点击元素失败: ${element.selector}`);
+      throw new Error(`点击元素失败: ${element.selector} - ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
   /**
-   * 等待页面变化
+   * 等待页面变化（智能等待）
+   * 使用轮询机制检测页面状态变化，而非硬等待
    */
   private async waitForPageChange(): Promise<void> {
     if (!this.driver) return;
 
-    // 等待一段时间让页面加载
-    await this.driver.pause(500);
+    const maxWaitTime = 5000; // 最大等待 5 秒
+    const pollInterval = 200; // 每 200ms 检查一次
+    const startTime = Date.now();
 
-    // 尝试等待加载指示器消失
+    // 记录初始 Activity 和 Package
+    let lastActivity = '';
+    let lastPackage = '';
     try {
-      const loadingIndicators = await this.driver.$$('//*[@progress="true" or @loading="true"]');
-      if (loadingIndicators.length > 0) {
-        await this.driver.pause(1000);
-      }
+      lastActivity = await this.driver.getCurrentActivity();
+      lastPackage = await this.driver.getCurrentPackage();
     } catch {
-      // 不影响继续
+      // 无法获取初始状态，使用最小等待
+      await this.driver.pause(300);
+      return;
+    }
+
+    // 轮询等待页面稳定
+    let stableCount = 0;
+    while (Date.now() - startTime < maxWaitTime) {
+      try {
+        const currentActivity = await this.driver.getCurrentActivity();
+        const currentPackage = await this.driver.getCurrentPackage();
+
+        // 如果 Activity 或 Package 变化，说明页面在加载
+        if (currentActivity !== lastActivity || currentPackage !== lastPackage) {
+          lastActivity = currentActivity;
+          lastPackage = currentPackage;
+          stableCount = 0;
+          await this.driver.pause(pollInterval);
+          continue;
+        }
+
+        // 检查加载指示器
+        const loadingIndicators = await this.driver.$$('//*[@progress="true" or @loading="true"]');
+        if (loadingIndicators.length > 0) {
+          stableCount = 0;
+          await this.driver.pause(pollInterval);
+          continue;
+        }
+
+        // 页面已稳定
+        stableCount++;
+        if (stableCount >= 2) {
+          // 连续两次检查稳定才认为加载完成
+          break;
+        }
+
+        await this.driver.pause(pollInterval);
+      } catch {
+        // 检查出错，等待后重试
+        await this.driver.pause(pollInterval);
+      }
     }
   }
 
@@ -514,7 +613,7 @@ export class AppCrawler extends EventEmitter {
   }
 
   /**
-   * 返回上一页
+   * 返回上一页（带状态恢复保护）
    */
   private async goBack(_targetState: AppPageState): Promise<void> {
     if (!this.driver) return;
@@ -525,7 +624,9 @@ export class AppCrawler extends EventEmitter {
       if (this.config.backStrategy === 'back-button') {
         // 使用系统返回键
         await this.driver.back();
-        await this.driver.pause(300);
+
+        // 智能等待页面稳定（而非硬等待）
+        await this.waitForPageChange();
       } else {
         // 重启应用回到目标页面
         await this.driver.closeApp();
@@ -534,12 +635,18 @@ export class AppCrawler extends EventEmitter {
     } catch (error) {
       logger.warn('⚠️ 返回操作失败', { error: String(error) });
 
-      // 尝试重启应用
+      // 尝试重启应用恢复状态
       try {
         await this.driver.closeApp();
         await this.driver.launchApp();
-      } catch {
-        // 最终恢复失败
+        // 等待应用启动完成
+        await this.waitForPageChange();
+      } catch (recoveryError) {
+        // 最终恢复失败，记录详细错误
+        logger.error('❌ 应用恢复失败，当前测试可能受影响', {
+          originalError: String(error),
+          recoveryError: String(recoveryError),
+        });
       }
     }
   }

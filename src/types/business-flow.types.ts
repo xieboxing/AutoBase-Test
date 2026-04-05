@@ -1,13 +1,20 @@
 /**
  * 业务流分析相关类型定义
+ *
+ * 注意：本文件定义的是数据库持久化格式（BusinessFlowRecord）
+ * 与 src/ai/prompts/business-flow.prompt.ts 中的 AI Prompt 格式（BusinessFlowPrompt）不同
+ *
+ * 主要差异：
+ * - Record版本：id, projectId, platform, entryUrl, createdAt 等数据库字段
+ * - Prompt版本：flowId, entryPoint, testData 等AI输出字段
  */
 
 import type { Platform } from './test-case.types.js';
 
 /**
- * 业务流
+ * 业务流记录（数据库持久化格式）
  */
-export interface BusinessFlow {
+export interface BusinessFlowRecord {
   /** 流 ID */
   id: string;
   /** 项目 ID */
@@ -273,3 +280,9 @@ export const DEFAULT_BUSINESS_FLOW_ANALYSIS_CONFIG: BusinessFlowAnalysisConfig =
   generateTestCases: true,
   persistResults: true,
 };
+
+/**
+ * 向后兼容别名
+ * @deprecated 请使用 BusinessFlowRecord，此别名将在未来版本移除
+ */
+export type BusinessFlow = BusinessFlowRecord;

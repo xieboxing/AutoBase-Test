@@ -175,9 +175,15 @@ export class PageSnapshotter {
   }
 
   /**
-   * 等待页面稳定
+   * 等待页面稳定（智能等待）
+   * 通过轮询检查页面状态，而非硬等待
    */
   private async waitForStable(page: Page): Promise<void> {
+    const maxWaitTime = 5000; // 最大等待 5 秒
+    const pollInterval = 200; // 每 200ms 检查一次
+    const startTime = Date.now();
+
+    // 先等待页面基础加载完成
     try {
       await page.waitForFunction(
         () => {
@@ -202,15 +208,43 @@ export class PageSnapshotter {
 
           return true;
         },
-        { timeout: this.config.timeout },
+        { timeout: Math.min(this.config.timeout, maxWaitTime) },
       );
     } catch {
       // 超时不影响继续执行
       logger.warn('⚠️ 页面稳定检查超时');
     }
 
-    // 额外等待确保动态内容加载
-    await page.waitForTimeout(500);
+    // 额外等待动态内容加载 - 使用智能等待而非固定等待
+    let stableCount = 0;
+    let lastElementCount = 0;
+
+    while (Date.now() - startTime < maxWaitTime) {
+      try {
+        // 检查 DOM 元素数量是否稳定
+        const currentCount = await page.evaluate(() => {
+          return document.querySelectorAll('*').length;
+        });
+
+        if (currentCount === lastElementCount) {
+          stableCount++;
+          // 连续两次检查元素数量不变，认为页面稳定
+          if (stableCount >= 2) {
+            return;
+          }
+        } else {
+          stableCount = 0;
+          lastElementCount = currentCount;
+        }
+
+        await page.waitForTimeout(pollInterval);
+      } catch {
+        // 检查失败，继续等待
+        await page.waitForTimeout(pollInterval);
+      }
+    }
+
+    logger.debug('页面稳定等待完成', { duration: Date.now() - startTime });
   }
 
   /**

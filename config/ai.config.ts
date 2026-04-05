@@ -34,14 +34,14 @@ export type AiConfig = z.infer<typeof aiConfigSchema>;
 export const defaultAiConfig: AiConfig = {
   provider: 'anthropic',
   apiKey: undefined,
-  model: 'claude-sonnet-4-20250514',
+  model: process.env.AI_MODEL || 'claude-sonnet-4-20250514',
   maxTokens: 4096,
   temperature: 0.7,
   baseUrl: undefined,
   timeout: 30000,
   retryCount: 3,
   embeddingEnabled: true,
-  embeddingModel: 'text-embedding-3-small',
+  embeddingModel: process.env.AI_EMBEDDING_MODEL || 'text-embedding-3-small',
   embeddingDimension: 1536,
 };
 

@@ -5,7 +5,7 @@ import { logger } from '@/core/logger.js';
 import { ConsoleReporter } from '@/reporters/console-reporter.js';
 import { ReportGenerator } from '@/reporters/report-generator.js';
 import { deviceManager } from '@/utils/device.js';
-import { remote } from 'webdriverio';
+import { remote, type Browser } from 'webdriverio';
 
 /**
  * APP 测试命令选项
@@ -130,7 +130,7 @@ async function executeAppTest(apkPath: string | undefined, options: AppCommandOp
     progressBars: !options.quiet,
   });
 
-  let driver: any = null;
+  let driver: Browser | null = null;
 
   try {
     // 检查环境
@@ -203,7 +203,7 @@ async function executeAppTest(apkPath: string | undefined, options: AppCommandOp
     // 开始测试
     consoleReporter.startRun('APP 测试', 3);
     const startTime = Date.now();
-    const results: any[] = [];
+    const results: Array<{ status: 'passed' | 'failed' }> = [];
 
     // ========== 测试 1: 安装测试 ==========
     if (apkPath) {

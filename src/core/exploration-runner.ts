@@ -543,8 +543,8 @@ export class ExplorationRunner extends EventEmitter {
           await this.page.click(action.target!);
       }
 
-      // 等待页面稳定
-      await this.page.waitForTimeout(1000);
+      // 等待页面稳定（智能等待替代固定等待）
+      await this.waitForPageStable(1000);
 
       // 捕获新状态
       const newState = await this.captureCurrentState();
@@ -825,6 +825,63 @@ export class ExplorationRunner extends EventEmitter {
       });
     } catch (error) {
       logger.warn(`RAG 记忆记录失败: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * 智能等待页面稳定
+   * 通过检查 DOM 变化、网络状态和 loading 元素来判断页面是否稳定
+   */
+  private async waitForPageStable(maxWaitMs: number): Promise<void> {
+    const pollInterval = 100;
+    const startTime = Date.now();
+
+    // 获取初始 DOM 节点数
+    let lastNodeCount = await this.page.evaluate(() => document.querySelectorAll('*').length);
+    let stableCount = 0;
+
+    while (Date.now() - startTime < maxWaitMs) {
+      // 检查是否有 loading 状态
+      const isLoading = await this.page.evaluate(() => {
+        const loadingSelectors = [
+          '[data-loading="true"]',
+          '.loading',
+          '.spinner',
+          '.loader',
+          '[aria-busy="true"]',
+        ];
+        for (const selector of loadingSelectors) {
+          const el = document.querySelector(selector);
+          if (el) {
+            const style = window.getComputedStyle(el);
+            if (style.display !== 'none' && style.visibility !== 'hidden') {
+              return true;
+            }
+          }
+        }
+        return false;
+      });
+
+      if (isLoading) {
+        await this.page.waitForTimeout(pollInterval);
+        continue;
+      }
+
+      // 检查 DOM 是否稳定
+      const currentNodeCount = await this.page.evaluate(() => document.querySelectorAll('*').length);
+
+      if (currentNodeCount === lastNodeCount) {
+        stableCount++;
+        // 连续两次 DOM 节点数不变，认为页面稳定
+        if (stableCount >= 2) {
+          return;
+        }
+      } else {
+        stableCount = 0;
+        lastNodeCount = currentNodeCount;
+      }
+
+      await this.page.waitForTimeout(pollInterval);
     }
   }
 

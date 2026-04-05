@@ -7,9 +7,10 @@ import { z } from 'zod';
 import type { InteractiveElement, FormInfo } from '@/types/crawler.types.js';
 
 /**
- * 业务步骤 Schema
+ * 业务步骤 Schema（AI Prompt 格式）
+ * 与 types/business-flow.types.ts 中的 BusinessFlowStep 不同，这是 AI 分析输出的格式
  */
-export const businessStepSchema = z.object({
+export const businessStepPromptSchema = z.object({
   stepId: z.string().describe('步骤 ID'),
   name: z.string().describe('步骤名称'),
   description: z.string().describe('步骤描述'),
@@ -20,12 +21,17 @@ export const businessStepSchema = z.object({
   criticalStep: z.boolean().describe('是否关键步骤'),
 });
 
-export type BusinessStep = z.infer<typeof businessStepSchema>;
+export type BusinessStepPrompt = z.infer<typeof businessStepPromptSchema>;
+
+// 保持向后兼容的别名
+export const businessStepSchema = businessStepPromptSchema;
+export type BusinessStep = BusinessStepPrompt;
 
 /**
- * 业务流 Schema
+ * 业务流 Schema（AI Prompt 格式）
+ * 注意：这是 AI 分析输出的格式，与 types/business-flow.types.ts 中的 BusinessFlowRecord 不同
  */
-export const businessFlowSchema = z.object({
+export const businessFlowPromptSchema = z.object({
   flowId: z.string().describe('业务流 ID'),
   flowName: z.string().describe('业务流名称'),
   flowType: z.enum(['user-journey', 'transaction', 'form-submission', 'navigation', 'authentication', 'shopping', 'search', 'crud']).describe('业务流类型'),
@@ -33,14 +39,18 @@ export const businessFlowSchema = z.object({
   priority: z.enum(['P0', 'P1', 'P2', 'P3']).describe('优先级'),
   entryPoint: z.string().describe('入口页面 URL'),
   exitPoint: z.string().optional().describe('出口页面 URL'),
-  steps: z.array(businessStepSchema).describe('业务步骤'),
+  steps: z.array(businessStepPromptSchema).describe('业务步骤'),
   preconditions: z.array(z.string()).describe('前置条件'),
   postconditions: z.array(z.string()).describe('后置条件'),
   testData: z.record(z.string()).optional().describe('测试数据'),
   confidence: z.number().min(0).max(1).describe('置信度'),
 });
 
-export type BusinessFlow = z.infer<typeof businessFlowSchema>;
+export type BusinessFlowPrompt = z.infer<typeof businessFlowPromptSchema>;
+
+// 保持向后兼容的别名
+export const businessFlowSchema = businessFlowPromptSchema;
+export type BusinessFlow = BusinessFlowPrompt;
 
 /**
  * 页面业务分析结果 Schema

@@ -642,13 +642,14 @@ export class Orchestrator extends EventEmitter {
 
         for (const crawledPage of pagesToSnapshot) {
           let context: BrowserContext | null = null;
+          let page: Page | null = null;
           try {
             testLogger.step(`📸 生成页面快照`, { url: crawledPage.url });
 
             context = await this.browser.newContext({
               viewport: { width: 1920, height: 1080 },
             });
-            const page = await context.newPage();
+            page = await context.newPage();
 
             await page.goto(crawledPage.url, {
               waitUntil: 'domcontentloaded',
@@ -687,7 +688,15 @@ export class Orchestrator extends EventEmitter {
           } catch (error) {
             testLogger.warn('快照生成失败', { url: crawledPage.url, error: String(error) });
           } finally {
-            // 确保 context 被关闭，防止资源泄漏
+            // 确保 page 和 context 被正确关闭，防止资源泄漏
+            // 关闭顺序：page -> context
+            if (page) {
+              try {
+                await page.close();
+              } catch {
+                // 忽略关闭错误
+              }
+            }
             if (context) {
               try {
                 await context.close();

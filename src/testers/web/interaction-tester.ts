@@ -308,7 +308,7 @@ export class InteractionTester {
   }
 
   /**
-   * 测试按钮
+   * 测试按钮（智能等待）
    */
   private async testButton(
     element: { selector: string; tag: string; text?: string },
@@ -317,18 +317,24 @@ export class InteractionTester {
     if (!this.page) return result;
 
     try {
+      const locator = this.page.locator(element.selector);
+
       // 检查按钮是否禁用
-      const isDisabled = await this.page.locator(element.selector).isDisabled();
+      const isDisabled = await locator.isDisabled();
       if (isDisabled) {
         result.passed = true;
         return result;
       }
 
       // 尝试点击（但不跳转）
-      await this.page.locator(element.selector).click({ timeout: 5000 });
+      await locator.click({ timeout: 5000 });
 
-      // 等待可能的响应
-      await this.page.waitForTimeout(500);
+      // 智能等待：等待网络空闲或关键响应
+      // 使用 Promise.race 避免无限等待
+      await Promise.race([
+        this.page.waitForLoadState('networkidle', { timeout: 2000 }).catch(() => {}),
+        this.page.waitForTimeout(500),
+      ]);
 
       result.consoleErrors = [...this.consoleErrors];
 
@@ -340,6 +346,9 @@ export class InteractionTester {
     } catch (error) {
       // 点击失败不一定意味着按钮有问题
       result.consoleErrors = [...this.consoleErrors];
+      // 记录具体的点击失败原因，便于调试
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      logger.debug(`按钮点击异常: ${element.selector}`, { error: errorMsg });
     }
 
     return result;
